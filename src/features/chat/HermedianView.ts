@@ -124,10 +124,6 @@ export class HermedianView extends ItemView {
     if (!this.resolvedCliPath) return;
     
     try {
-      const { execFile } = await import('child_process');
-      const { promisify } = await import('util');
-      const execFileAsync = promisify(execFile);
-      
       // Hermes CLI doesn't have a 'models' command yet, so we skip this
       // and rely on the static fallback from HermesChatUIConfig
       // TODO: When Hermes adds `hermes models --json`, use it here
@@ -180,10 +176,10 @@ export class HermedianView extends ItemView {
   }
 
   private createInputArea(): void {
-    // Composer - single row (like Hermes Agent Desktop)
+    // Composer - single row (exactly like Hermes Agent Desktop)
     const composer = this.containerEl.createDiv({ cls: 'hermedian-composer' });
 
-    // 1. Attach button (far left)
+    // 1. Attach button (far left, plus icon)
     const attachBtn = composer.createEl('button', { cls: 'hermedian-attach-btn', title: 'Attach files' });
     setIcon(attachBtn, 'plus');
     attachBtn.addEventListener('click', () => this.openFilePicker());
@@ -201,7 +197,7 @@ export class HermedianView extends ItemView {
       }
     });
 
-    // 3. Model selector (right)
+    // 3. Model selector (right of input)
     this.modelSelectEl = composer.createEl('select', { cls: 'hermedian-model-select' });
     this.populateModelSelectorFallback();
 
@@ -212,7 +208,7 @@ export class HermedianView extends ItemView {
       ProviderRegistry.getChatUIConfig('hermes').applyModelDefaults(target.value, this.plugin.settings as unknown as Record<string, unknown>);
     });
 
-    // 4. Send button (far right)
+    // 4. Send button (far right, circular)
     const sendBtn = composer.createEl('button', { 
       cls: 'hermedian-send-btn',
       attr: { title: 'Send' }
@@ -376,7 +372,7 @@ export class HermedianView extends ItemView {
       });
 
       // Get execution backend and update CLI path
-      const backend = this.providerRegistry.getExecutionBackend('hermes') as any;
+      const backend = this.providerRegistry.getExecutionBackend('hermes', this.plugin) as any;
       if (backend.setCliPath && this.resolvedCliPath) {
         backend.setCliPath(this.resolvedCliPath);
       }

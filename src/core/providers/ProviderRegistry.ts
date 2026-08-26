@@ -44,8 +44,9 @@ export class ProviderRegistry {
     return registration.settingsStorage as ProviderSettingsStorageAdapter;
   }
 
-  static getExecutionBackend(providerId: ProviderId): ProviderExecutionBackend {
-    return this.getRegistration(providerId).createExecutionBackend({} as any);
+  static getExecutionBackend(providerId: ProviderId, plugin?: any): ProviderExecutionBackend {
+    const pluginArg = plugin ?? ({} as any);
+    return this.getRegistration(providerId).createExecutionBackend(pluginArg);
   }
 
   static getRegisteredProviderIds(): ProviderId[] {

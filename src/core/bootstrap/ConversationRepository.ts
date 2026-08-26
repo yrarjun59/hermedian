@@ -106,13 +106,14 @@ export class ConversationRepository {
    * List all conversations (metadata only).
    */
   async list(): Promise<ConversationMeta[]> {
-    const files = await this.adapter.list(this.basePath);
+    const items = await this.adapter.list(this.basePath);
     const metas: ConversationMeta[] = [];
 
-    for (const file of files) {
-      if (file.endsWith('.json') && !file.endsWith('.ledger.json')) {
+    for (const item of items) {
+      const path = (item as any).path ?? item;
+      if (typeof path === 'string' && path.endsWith('.json') && !path.endsWith('.ledger.json')) {
         try {
-          const content = await this.adapter.read(`${this.basePath}/${file}`);
+          const content = await this.adapter.read(path);
           const conversation = JSON.parse(content) as Conversation;
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { messages, ...meta } = conversation;

@@ -28,7 +28,7 @@ export const DEFAULT_HERMEDIAN_SETTINGS: HermedianSettings = {
   hermes: {
     enabled: true,
     cliPath: '',
-    model: 'sonnet',
+    model: 'nvidia/llama-3.1-nemotron-70b-instruct',
     effortLevel: 'medium',
     safeMode: 'auto',
     environmentVariables: '',
@@ -37,7 +37,13 @@ export const DEFAULT_HERMEDIAN_SETTINGS: HermedianSettings = {
     customModels: '',
   },
   sharedEnvironmentVariables: '',
-  providerConfigs: {},
+  providerConfigs: {
+    hermes: {
+      model: 'nvidia/llama-3.1-nemotron-70b-instruct',
+      effortLevel: 'medium',
+      safeMode: 'auto',
+    },
+  },
   theme: 'system',
   fontSize: 14,
   maxWarmProcesses: 5,
