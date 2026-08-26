@@ -1,8 +1,8 @@
 // src/providers/hermes/execution/HermesExecutionSession.ts
-import { ChildProcess,spawn } from 'child_process';
+import { ChildProcess, spawn } from 'child_process';
 import { createInterface } from 'readline';
 
-import type { ProviderExecutionEvent,ProviderExecutionRequest, ProviderExecutionRun, ProviderExecutionSession, ProviderSessionConfig, ProviderSessionEvent } from '../../../core/execution/types';
+import type { ProviderExecutionEvent, ProviderExecutionRequest, ProviderExecutionRun, ProviderExecutionSession, ProviderSessionConfig, ProviderSessionEvent } from '../../../core/execution/types';
 
 interface HermesEvent {
   type: 'text_delta' | 'tool_start' | 'tool_output' | 'completed' | 'error' | 'thinking_delta';
@@ -23,8 +23,11 @@ export class HermesExecutionSession implements ProviderExecutionSession {
   private currentRunId: string | null = null;
   private ended = false;
   private sessionEventHandlers: Set<(event: ProviderSessionEvent) => void> = new Set();
+  private cliPath: string;
 
-  constructor(public id: string, public config: ProviderSessionConfig) {}
+  constructor(public id: string, public config: ProviderSessionConfig, cliPath: string) {
+    this.cliPath = cliPath;
+  }
 
   async execute(request: ProviderExecutionRequest): Promise<ProviderExecutionRun> {
     const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -54,7 +57,6 @@ export class HermesExecutionSession implements ProviderExecutionSession {
     this.status = 'idle';
     this.currentRunId = null;
     this.ended = true;
-    // Resolve all waiters
     for (const resolve of this.waiters) {
       resolve({ type: 'cancelled', runId: '', timestamp: Date.now() });
     }
@@ -66,17 +68,12 @@ export class HermesExecutionSession implements ProviderExecutionSession {
     return () => this.sessionEventHandlers.delete(handler);
   }
 
-  // Fork/rewind support - stub implementations for Hermes CLI provider
   async forkFrom(_sessionId: string, _resumeAtMessageId: string): Promise<ProviderExecutionSession> {
-    // For Hermes CLI, forking creates a new session that will resume from a message
-    // The actual resume logic is handled by the resumeSeed in createSession
     const newSessionId = `hermes-${this.config.conversationId}-${Date.now()}-fork`;
-    return new HermesExecutionSession(newSessionId, this.config);
+    return new HermesExecutionSession(newSessionId, this.config, this.cliPath);
   }
 
   async rewindTo(_messageId: string): Promise<void> {
-    // For Hermes CLI, rewinding means stopping current execution
-    // The conversation history is managed at the repository level
     await this.stop();
     this.status = 'idle';
   }
@@ -94,7 +91,6 @@ export class HermesExecutionSession implements ProviderExecutionSession {
             return { done: false, value: event };
           }
 
-          // Wait for next event
           return new Promise<IteratorResult<ProviderExecutionEvent>>((resolve) => {
             this.waiters.push((event) => {
               resolve({ done: false, value: event });
@@ -102,7 +98,7 @@ export class HermesExecutionSession implements ProviderExecutionSession {
 
             abortController.signal.addEventListener('abort', () => {
               this.ended = true;
-              const idx = this.waiters.indexOf((_w) => true); // Find any waiter
+              const idx = this.waiters.indexOf((_w) => true);
               if (idx >= 0) {
                 this.waiters.splice(idx, 1);
               }
@@ -132,7 +128,10 @@ export class HermesExecutionSession implements ProviderExecutionSession {
       }
     }
 
-    this.process = spawn('hermes', args, {
+    console.log(`[Hermes] Spawning: ${this.cliPath} ${args.join(' ')}`);
+    console.log(`[Hermes] CWD: ${this.config.workingDirectory}`);
+
+    this.process = spawn(this.cliPath, args, {
       cwd: this.config.workingDirectory,
       env: { ...process.env, ...this.config.environment },
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -238,7 +237,6 @@ export class HermesExecutionSession implements ProviderExecutionSession {
     if (waiter) {
       waiter(event);
     }
-    // Also emit to session event handlers (without runId/timestamp)
     const sessionEvent: ProviderSessionEvent = event as ProviderSessionEvent;
     for (const handler of this.sessionEventHandlers) {
       handler(sessionEvent);
