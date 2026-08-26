@@ -155,7 +155,7 @@ export class HermedianView extends ItemView {
 
     // Left: Title + Status
     const left = header.createDiv({ cls: 'hermedian-header-left' });
-    left.createSpan({ cls: 'hermedian-title', text: 'Hermesian' });
+    left.createSpan({ cls: 'hermedian-title', text: 'Hermedian' });
     this.hermesStatusEl = left.createSpan({ cls: 'hermedian-status disconnected', text: 'Checking...' });
 
     // Right: Action buttons
@@ -180,33 +180,16 @@ export class HermedianView extends ItemView {
   }
 
   private createInputArea(): void {
-    // Input area container - matches Hermes Agent ChatBar layout
-    const inputArea = this.containerEl.createDiv({ cls: 'hermedian-input-area' });
+    // Composer - single row (like Hermes Agent Desktop)
+    const composer = this.containerEl.createDiv({ cls: 'hermedian-composer' });
 
-    // Top row: Model selector (left) + Attach button (left)
-    const topRow = inputArea.createDiv({ cls: 'hermedian-input-top-row' });
-
-    // Model selector (left side)
-    const modelWrapper = topRow.createDiv({ cls: 'hermedian-model-wrapper' });
-    this.modelSelectEl = modelWrapper.createEl('select', { cls: 'hermedian-model-select' });
-    this.populateModelSelectorFallback();
-
-    this.modelSelectEl.addEventListener('change', async (e) => {
-      const target = e.target as HTMLSelectElement;
-      this.plugin.settings.hermes.model = target.value;
-      await this.plugin.saveSettings();
-      ProviderRegistry.getChatUIConfig('hermes').applyModelDefaults(target.value, this.plugin.settings as unknown as Record<string, unknown>);
-    });
-
-    // Attach files button (left side, next to model selector)
-    const attachBtn = topRow.createEl('button', { cls: 'hermedian-btn-icon hermedian-attach-btn', title: 'Attach files/folder' });
-    setIcon(attachBtn, 'paperclip');
+    // 1. Attach button (far left)
+    const attachBtn = composer.createEl('button', { cls: 'hermedian-attach-btn', title: 'Attach files' });
+    setIcon(attachBtn, 'plus');
     attachBtn.addEventListener('click', () => this.openFilePicker());
 
-    // Bottom row: Textarea (flex) + Send button (right)
-    const bottomRow = inputArea.createDiv({ cls: 'hermedian-input-bottom-row' });
-
-    this.inputEl = bottomRow.createEl('textarea', {
+    // 2. Input field (center, flex)
+    this.inputEl = composer.createEl('textarea', {
       cls: 'hermedian-input',
       attr: { placeholder: 'Ask Hermes... (Shift+Enter for newline)' }
     });
@@ -218,8 +201,19 @@ export class HermedianView extends ItemView {
       }
     });
 
-    // Send button - circular with chevron-up icon (like Hermes Agent)
-    const sendBtn = bottomRow.createEl('button', { 
+    // 3. Model selector (right)
+    this.modelSelectEl = composer.createEl('select', { cls: 'hermedian-model-select' });
+    this.populateModelSelectorFallback();
+
+    this.modelSelectEl.addEventListener('change', async (e) => {
+      const target = e.target as HTMLSelectElement;
+      this.plugin.settings.hermes.model = target.value;
+      await this.plugin.saveSettings();
+      ProviderRegistry.getChatUIConfig('hermes').applyModelDefaults(target.value, this.plugin.settings as unknown as Record<string, unknown>);
+    });
+
+    // 4. Send button (far right)
+    const sendBtn = composer.createEl('button', { 
       cls: 'hermedian-send-btn',
       attr: { title: 'Send' }
     });
@@ -386,8 +380,6 @@ export class HermedianView extends ItemView {
       if (backend.setCliPath && this.resolvedCliPath) {
         backend.setCliPath(this.resolvedCliPath);
       }
-      // Also store cliPath reference directly for spawn
-      const cliPath = this.resolvedCliPath || 'hermes';
 
       const vaultPath = (this.app.vault.adapter as any).getBasePath?.()
         || (this.app.vault.adapter as any).basePath
