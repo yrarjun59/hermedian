@@ -2,28 +2,29 @@
 
 **Hermes Agent embedded in Obsidian sidebar** — your vault becomes the agent's working directory.
 
-> Hermedian is a fork of [Claudian](https://github.com/YishenTu/claudian) focused specifically on Hermes Agent integration with Obsidian.
+Inspired by [Claudian](https://github.com/YishenTu/claudian) and [jsun2020/hermes-agent-obsidian-plugin](https://github.com/jsun2020/hermes-agent-obsidian-plugin).
 
-## Features
+## What is this?
 
-- 💬 **Chat sidebar** — Talk to Hermes Agent inside Obsidian
-- 📁 **Vault = working directory** — Agent reads, writes, edits, searches in your actual vault
-- ✏️ **Inline edit** — Select text → hotkey → agent edits directly with diff preview
-- 🔧 **MCP servers** — Connect external tools via Hermes Agent's native MCP config
-- 🌐 **Free/offline-first** — Works with local models + free APIs
-- 🔒 **Privacy-focused** — No telemetry, no cloud dependency
+Hermedian is an Obsidian plugin that embeds **Hermes Agent** (the local-first, free, offline-capable AI coding agent) directly in your vault. Unlike HTTP-gateway plugins, Hermedian **spawns the Hermes CLI as a subprocess**, giving you:
+
+| Capability | How it works |
+|------------|--------------|
+| **File read/write** | Hermes uses native file tools against your vault |
+| **Search (grep/glob)** | Runs ripgrep/fd inside your vault |
+| **Bash execution** | Commands run with vault as working directory |
+| **Multi-step workflows** | Agent plans → executes → verifies |
+| **No gateway needed** | No separate HTTP server, no API keys |
 
 ## Requirements
 
-- [Hermes Agent CLI](https://github.com/yourorg/hermes-agent)
-- [Obsidian](https://obsidian.md) v1.13.0+
+- [Hermes Agent CLI](https://github.com/yourorg/hermes-agent) — installed and in PATH
+- Obsidian v1.13.0+
 - Desktop only (macOS, Linux, Windows)
 
-## Installation
+## Install
 
-### From Obsidian Community Plugins (coming soon)
-
-### From source
+### From source (development)
 
 ```bash
 cd /path/to/vault/.obsidian/plugins
@@ -33,38 +34,45 @@ npm install
 npm run build
 ```
 
-Then enable the plugin in Obsidian: Settings → Community plugins → Enable "Hermedian"
+Enable in Obsidian: Settings → Community plugins → Enable "Hermedian"
 
 ## Usage
 
-- **Open chat**: Click the robot icon in the ribbon, or use command palette → "Open chat view"
-- **Inline edit**: Select text → `Shift+Enter` (configurable)
-- **New conversation**: `Ctrl+N` or click the + button
+- **Open chat**: Ribbon icon (bot) or command palette → "Open chat view"
+- **New conversation**: `Ctrl+N` or + button in sidebar
+- **Inline edit**: Select text → hotkey → diff preview → accept
+- **@mention**: Reference vault files, external paths, subagents
+- **/commands**: Reusable prompt templates (vault + user scope)
 
 ## Architecture
 
 ```
 src/
-├── main.ts                      # Plugin entry point
+├── main.ts                      # Plugin entry, view registration
 ├── core/                        # Provider-neutral runtime
-│   ├── providers/               # Registry, types, settings
-│   ├── execution/               # Backend, session, events, warm pool
-│   ├── bootstrap/               # Storage, sessions
-│   └── types/                   # Shared contracts
+│   ├── providers/               # Registry, settings, environment
+│   ├── execution/               # Backend, session, events, warm pool (LRU)
+│   ├── bootstrap/               # Storage, sessions, tab migration
+│   └── types/                   # Shared contracts (chat, settings, tools)
 ├── providers/hermes/            # Hermes Agent adapter
 │   ├── execution/               # CLI process, JSON streaming
 │   ├── history/                 # Conversation persistence
-│   └── ui/                      # Model selector config
+│   └── ui/                      # Model selector, reasoning config
 ├── features/
-│   ├── chat/                    # Sidebar chat view
-│   ├── settings/                # Settings tab
-│   └── inline-edit/             # (coming) Modal + diff preview
+│   ├── chat/                    # Sidebar, tabs, composers, rendering
+│   ├── inline-edit/             # Modal + diff preview (CodeMirror 6)
+│   ├── collab/                  # (future) LAN Git-based collab
+│   └── settings/                # Provider tabs, env vars, CLI path
 └── shared/                      # Reusable components
 ```
 
+## Status
+
+**Early development** — chat view + settings scaffold complete. Next: inline edit, conversation persistence, Hermes CLI JSON streaming.
+
 ## Contributing
 
-Issues and PRs welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Architecture questions welcome in issues.
 
 ## License
 
