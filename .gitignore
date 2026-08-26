@@ -34,3 +34,23 @@ AGENTIC_WORKFLOW.md
 IDEA.md
 HERMES_SWARM_WORKFLOW.md
 PHASE_CHECK.md
+launch-swarm.sh
+
+# Test artifacts
+data.json
+jest.config.cjs
+scripts/run-tests.js
+smoke-test.cjs
+
+# Test files (generated/scaffolded)
+tests/*.test.ts
+tests/jest.config.cjs
+tests/run-tests.js
+tests/smoke-test.cjs
+tests/data.json
+tests/mocks/
+tests/architecture/
+
+# Local config
+*.local.json
+*.local.js

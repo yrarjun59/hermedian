@@ -2,11 +2,11 @@
 import type { WorkspaceLeaf } from 'obsidian';
 import { ItemView, Notice, setIcon } from 'obsidian';
 
-import { ProviderRegistry } from '../../core/providers/ProviderRegistry';
-import { VIEW_TYPE_HERMEDIAN } from '../../core/types/chat';
-import type { Conversation } from '../../core/types/chat';
 import type { InputLedgerEntry } from '../../core/bootstrap/ConversationRepository';
 import { ConversationRepository } from '../../core/bootstrap/ConversationRepository';
+import { ProviderRegistry } from '../../core/providers/ProviderRegistry';
+import type { Conversation } from '../../core/types/chat';
+import { VIEW_TYPE_HERMEDIAN } from '../../core/types/chat';
 import { TabManager } from './TabManager';
 
 // Define ConversationWithLedger since it's not exported from core/types/chat
