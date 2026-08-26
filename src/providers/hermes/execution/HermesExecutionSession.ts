@@ -212,6 +212,7 @@ export class HermesExecutionSession implements ProviderExecutionSession {
         this.enqueueEvent({
           ...baseEvent,
           type: 'tool_output',
+          toolName: event.toolName ?? 'unknown',
           toolId: event.toolId ?? '',
           output: event.output,
         });

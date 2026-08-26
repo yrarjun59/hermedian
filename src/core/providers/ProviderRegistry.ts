@@ -1,5 +1,5 @@
 // src/core/providers/ProviderRegistry.ts
-import type { ProviderCapabilities, ProviderChatUIConfig, ProviderConversationHistoryService, ProviderId, ProviderRegistration, ProviderSettingsReconciler, ProviderSettingsStorageAdapter,ProviderTaskResultInterpreter } from './types';
+import type { ProviderCapabilities, ProviderChatUIConfig, ProviderConversationHistoryService, ProviderId, ProviderRegistration, ProviderSettingsReconciler, ProviderSettingsStorageAdapter, ProviderTaskResultInterpreter, ProviderExecutionBackend } from './types';
 
 export class ProviderRegistry {
   private static registrations: Partial<Record<ProviderId, ProviderRegistration>> = {};
@@ -42,6 +42,10 @@ export class ProviderRegistry {
       throw new Error(`Provider "${providerId}" does not own settings storage.`);
     }
     return registration.settingsStorage as ProviderSettingsStorageAdapter;
+  }
+
+  static getExecutionBackend(providerId: ProviderId): ProviderExecutionBackend {
+    return this.getRegistration(providerId).createExecutionBackend({} as any);
   }
 
   static getRegisteredProviderIds(): ProviderId[] {

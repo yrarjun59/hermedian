@@ -52,7 +52,7 @@ export type ProviderSessionEvent =
   | { type: 'text_delta'; content: string }
   | { type: 'thinking_delta'; content: string }
   | { type: 'tool_start'; toolName: string; toolId: string; input: unknown }
-  | { type: 'tool_output'; toolId: string; output: unknown }
+  | { type: 'tool_output'; toolName: string; toolId: string; output: unknown }
   | { type: 'completed'; usage?: { inputTokens: number; outputTokens: number } }
   | { type: 'error'; error: string }
   | { type: 'cancelled' };
