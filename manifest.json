@@ -1,0 +1,11 @@
+{
+  "id": "hermedian",
+  "name": "Hermedian",
+  "version": "0.1.0",
+  "minAppVersion": "1.13.0",
+  "description": "Hermes Agent embedded in Obsidian sidebar — your vault becomes the agent's working directory",
+  "author": "Hermedian Contributors",
+  "authorUrl": "https://github.com/yourusername/hermedian",
+  "fundingUrl": "https://github.com/sponsors/yourusername",
+  "isDesktopOnly": true
+}

@@ -1,0 +1,29 @@
+# .gitignore
+# Dependencies
+node_modules/
+
+# Build output
+main.js
+styles.css
+dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+
+# Build cache
+.cache/
+
+# Temporary files
+*.tmp
+*.bak
