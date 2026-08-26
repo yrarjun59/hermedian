@@ -153,26 +153,26 @@ export class HermedianView extends ItemView {
   private createHeader(): void {
     const header = this.containerEl.createDiv({ cls: 'hermedian-header' });
 
-    header.createSpan({ cls: 'hermedian-title', text: 'Hermedian' });
+    // Left: Title + Status
+    const left = header.createDiv({ cls: 'hermedian-header-left' });
+    left.createSpan({ cls: 'hermedian-title', text: 'Hermesian' });
+    this.hermesStatusEl = left.createSpan({ cls: 'hermedian-status disconnected', text: 'Checking...' });
 
-    // Hermes status indicator
-    this.hermesStatusEl = this.containerEl.createSpan({ cls: 'hermedian-status disconnected', text: 'Checking Hermes...' });
-    this.hermesStatusEl.style.cursor = 'pointer';
-
-    const actions = this.containerEl.createDiv({ cls: 'hermedian-actions' });
+    // Right: Action buttons
+    const actions = header.createDiv({ cls: 'hermedian-actions' });
 
     // New conversation button
-    const newBtn = this.containerEl.createEl('button', { cls: 'hermedian-btn-icon', title: 'New conversation' });
+    const newBtn = actions.createEl('button', { cls: 'hermedian-btn-icon', title: 'New conversation' });
     setIcon(newBtn, 'plus');
     newBtn.addEventListener('click', () => this.createNewConversation());
 
     // History sidebar button
-    const historyBtn = this.containerEl.createEl('button', { cls: 'hermedian-btn-icon', title: 'History' });
+    const historyBtn = actions.createEl('button', { cls: 'hermedian-btn-icon', title: 'History' });
     setIcon(historyBtn, 'clock');
     historyBtn.addEventListener('click', () => this.toggleHistorySidebar());
 
     // Settings button
-    const settingsBtn = this.containerEl.createEl('button', { cls: 'hermedian-btn-icon', title: 'Settings' });
+    const settingsBtn = actions.createEl('button', { cls: 'hermedian-btn-icon', title: 'Settings' });
     setIcon(settingsBtn, 'settings');
     settingsBtn.addEventListener('click', () => {
       (this.app as unknown as { setting?: { openTabById?: (id: string) => void } }).setting?.openTabById?.('hermedian');
@@ -180,14 +180,14 @@ export class HermedianView extends ItemView {
   }
 
   private createInputArea(): void {
-    // Input area container - flex column
+    // Input area container - matches Hermes Agent ChatBar layout
     const inputArea = this.containerEl.createDiv({ cls: 'hermedian-input-area' });
 
     // Top row: Model selector (left) + Attach button (left)
-    const topRow = this.containerEl.createDiv({ cls: 'hermedian-input-top-row' });
+    const topRow = inputArea.createDiv({ cls: 'hermedian-input-top-row' });
 
     // Model selector (left side)
-    const modelWrapper = this.containerEl.createDiv({ cls: 'hermedian-model-wrapper' });
+    const modelWrapper = topRow.createDiv({ cls: 'hermedian-model-wrapper' });
     this.modelSelectEl = modelWrapper.createEl('select', { cls: 'hermedian-model-select' });
     this.populateModelSelectorFallback();
 
@@ -199,14 +199,14 @@ export class HermedianView extends ItemView {
     });
 
     // Attach files button (left side, next to model selector)
-    const attachBtn = this.containerEl.createEl('button', { cls: 'hermedian-btn-icon hermedian-attach-btn', title: 'Attach files/folder' });
+    const attachBtn = topRow.createEl('button', { cls: 'hermedian-btn-icon hermedian-attach-btn', title: 'Attach files/folder' });
     setIcon(attachBtn, 'paperclip');
     attachBtn.addEventListener('click', () => this.openFilePicker());
 
     // Bottom row: Textarea (flex) + Send button (right)
-    const bottomRow = this.containerEl.createDiv({ cls: 'hermedian-input-bottom-row' });
+    const bottomRow = inputArea.createDiv({ cls: 'hermedian-input-bottom-row' });
 
-    this.inputEl = this.containerEl.createEl('textarea', {
+    this.inputEl = bottomRow.createEl('textarea', {
       cls: 'hermedian-input',
       attr: { placeholder: 'Ask Hermes... (Shift+Enter for newline)' }
     });
@@ -218,8 +218,8 @@ export class HermedianView extends ItemView {
       }
     });
 
-    // Send button - upward arrow icon (like Hermes Agent)
-    const sendBtn = this.containerEl.createEl('button', { 
+    // Send button - circular with chevron-up icon (like Hermes Agent)
+    const sendBtn = bottomRow.createEl('button', { 
       cls: 'hermedian-send-btn',
       attr: { title: 'Send' }
     });
@@ -251,7 +251,7 @@ export class HermedianView extends ItemView {
     this.historySidebarEl = this.containerEl.createDiv({ cls: 'hermedian-history-sidebar' });
     this.historySidebarEl.createDiv({ cls: 'hermedian-history-sidebar-header', text: 'Conversation History' });
 
-    const historyList = this.containerEl.createDiv({ cls: 'hermedian-history-list' });
+    const historyList = this.historySidebarEl.createDiv({ cls: 'hermedian-history-list' });
     this.historySidebarEl.appendChild(historyList);
 
     this.loadConversationHistory(historyList);
@@ -262,7 +262,7 @@ export class HermedianView extends ItemView {
     const conversations = await this.conversationRepo.list();
 
     for (const meta of conversations) {
-      const item = this.containerEl.createDiv({ cls: 'hermedian-history-item' });
+      const item = container.createDiv({ cls: 'hermedian-history-item' });
       item.createSpan({ text: meta.title || `Conversation ${meta.id.substring(0, 8)}` });
       item.addEventListener('click', () => this.loadConversation(meta.id));
 
@@ -286,8 +286,8 @@ export class HermedianView extends ItemView {
   private createMessageArea(): void {
     this.messageContainer = this.containerEl.createDiv({ cls: 'hermedian-messages' });
 
-    const welcome = this.containerEl.createDiv({ cls: 'hermedian-message assistant' });
-    const welcomeContent = this.containerEl.createDiv({ cls: 'hermedian-message-content' });
+    const welcome = this.messageContainer.createDiv({ cls: 'hermedian-message assistant' });
+    const welcomeContent = welcome.createDiv({ cls: 'hermedian-message-content' });
     welcomeContent.createEl('p', {
       text: 'Hello! I\'m Hermes Agent, your AI coding assistant. I can read, write, and edit files in your vault. How can I help?'
     });
@@ -449,10 +449,10 @@ export class HermedianView extends ItemView {
   private addMessage(role: 'user' | 'assistant', text: string): HTMLElement {
     if (!this.messageContainer) return document.createElement('div');
 
-    const msg = this.containerEl.createDiv({
+    const msg = this.messageContainer.createDiv({
       cls: `hermedian-message ${role}`
     });
-    const content = this.containerEl.createDiv({ cls: 'hermedian-message-content' });
+    const content = msg.createDiv({ cls: 'hermedian-message-content' });
     content.createEl('p', { text });
 
     this.messageContainer.scrollTop = this.messageContainer.scrollHeight;
@@ -468,8 +468,8 @@ export class HermedianView extends ItemView {
   private async createNewConversation(): Promise<void> {
     if (this.messageContainer) {
       this.messageContainer.empty();
-      const welcome = this.containerEl.createDiv({ cls: 'hermedian-message assistant' });
-      const welcomeContent = this.containerEl.createDiv({ cls: 'hermedian-message-content' });
+      const welcome = this.messageContainer.createDiv({ cls: 'hermedian-message assistant' });
+      const welcomeContent = welcome.createDiv({ cls: 'hermedian-message-content' });
       welcomeContent.createEl('p', { text: 'New conversation started. How can I help?' });
     }
 
@@ -501,8 +501,8 @@ export class HermedianView extends ItemView {
     }
 
     if (loaded.ledger.length === 0) {
-      const welcome = this.containerEl.createDiv({ cls: 'hermedian-message assistant' });
-      const welcomeContent = this.containerEl.createDiv({ cls: 'hermedian-message-content' });
+      const welcome = this.messageContainer.createDiv({ cls: 'hermedian-message assistant' });
+      const welcomeContent = welcome.createDiv({ cls: 'hermedian-message-content' });
       welcomeContent.createEl('p', { text: 'Hello! I\'m Hermes Agent, your AI coding assistant. I can read, write, and edit files in your vault. How can I help?' });
     }
   }
