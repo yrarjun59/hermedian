@@ -4,17 +4,6 @@ import { createInterface } from 'readline';
 
 import type { ProviderExecutionEvent, ProviderExecutionRequest, ProviderExecutionRun, ProviderExecutionSession, ProviderSessionConfig, ProviderSessionEvent } from '../../../core/execution/types';
 
-interface HermesEvent {
-  type: 'text_delta' | 'tool_start' | 'tool_output' | 'completed' | 'error' | 'thinking_delta';
-  content?: string;
-  toolName?: string;
-  toolId?: string;
-  input?: unknown;
-  output?: unknown;
-  error?: string;
-  usage?: { inputTokens: number; outputTokens: number };
-}
-
 export class HermesExecutionSession implements ProviderExecutionSession {
   status: 'idle' | 'running' | 'waiting' | 'completed' | 'error' = 'idle';
   private process: ChildProcess | null = null;
@@ -115,7 +104,7 @@ export class HermesExecutionSession implements ProviderExecutionSession {
   }
 
   private spawnProcess(request: ProviderExecutionRequest, runId: string, abortController: AbortController): void {
-    // Hermes CLI chat command syntax (verified from hermes chat --help):
+    // Hermes CLI chat command (verified from hermes chat --help):
     // hermes chat -q QUERY -m MODEL --provider PROVIDER --reasoning LEVEL --in DIR
     const args: string[] = ['chat'];
 
@@ -149,15 +138,48 @@ export class HermesExecutionSession implements ProviderExecutionSession {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
+    let buffer = '';
+    let responseStarted = false;
+
     if (this.process.stdout) {
       const rl = createInterface({ input: this.process.stdout });
       rl.on('line', (line: string) => {
         if (abortController.signal.aborted) return;
+        buffer += line + '\n';
+        
+        // Detect when response starts (after the "Hermes" box begins)
+        // The response is between ╭─ ⚕ Hermes ─... and ╰─...╯
+        if (line.includes('╭─ ⚕ Hermes')) {
+          responseStarted = true;
+          return;
+        }
+        
+        // Detect when response ends
+        if (line.includes('╰─') && line.includes('╯') && responseStarted) {
+          // Extract the response content from buffer
+          const response = this.extractResponse(buffer);
+          if (response.trim()) {
+            this.enqueueEvent({ 
+              type: 'text_delta', 
+              runId, 
+              timestamp: Date.now(), 
+              content: response.trim() 
+            });
+          }
+          buffer = '';
+          responseStarted = false;
+          return;
+        }
+        
+        // Also try JSON parsing for structured output
         try {
-          const event = JSON.parse(line) as HermesEvent;
-          this.handleHermesEvent(event, runId);
+          const event = JSON.parse(line);
+          if (event.type) {
+            this.enqueueEvent({ ...event, runId, timestamp: Date.now() });
+            return;
+          }
         } catch {
-          // Skip non-JSON lines
+          // Not JSON, continue with text parsing
         }
       });
     }
@@ -170,6 +192,19 @@ export class HermesExecutionSession implements ProviderExecutionSession {
     }
 
     this.process.on('exit', (code) => {
+      // If there's remaining buffer content, emit it
+      if (buffer.trim()) {
+        const response = this.extractResponse(buffer);
+        if (response.trim()) {
+          this.enqueueEvent({ 
+            type: 'text_delta', 
+            runId, 
+            timestamp: Date.now(), 
+            content: response.trim() 
+          });
+        }
+      }
+      
       if (code === 0) {
         this.enqueueEvent({ type: 'completed', runId, timestamp: Date.now(), usage: { inputTokens: 0, outputTokens: 0 } });
         this.status = 'completed';
@@ -191,54 +226,37 @@ export class HermesExecutionSession implements ProviderExecutionSession {
     });
   }
 
+  private extractResponse(buffer: string): string {
+    // Hermes outputs like:
+    // ╭─ ⚕ Hermes ──────────────────────────╮
+    // Response text here
+    // ╰──────────────────────────────────────╯
+    
+    const lines = buffer.split('\n');
+    const contentLines = [];
+    let inResponse = false;
+    
+    for (const line of lines) {
+      if (line.includes('╭─ ⚕ Hermes')) {
+        inResponse = true;
+        continue;
+      }
+      if (line.includes('╰─') && line.includes('╯') && inResponse) {
+        break;
+      }
+      if (inResponse && line.trim()) {
+        contentLines.push(line);
+      }
+    }
+    
+    return contentLines.join('\n');
+  }
+
   private getProviderForModel(model: string): string {
     if (model.startsWith('nvidia/')) return 'nvidia-nim';
     if (model.startsWith('hermes-')) return 'nous';
     if (model.startsWith('nemotron-')) return 'nous';
     return 'nvidia-nim';
-  }
-
-  private handleHermesEvent(event: HermesEvent, runId: string): void {
-    const baseEvent = { runId, timestamp: Date.now() };
-
-    switch (event.type) {
-      case 'text_delta':
-        this.enqueueEvent({ ...baseEvent, type: 'text_delta', content: event.content ?? '' });
-        break;
-      case 'thinking_delta':
-        this.enqueueEvent({ ...baseEvent, type: 'thinking_delta', content: event.content ?? '' });
-        break;
-      case 'tool_start':
-        this.enqueueEvent({
-          ...baseEvent,
-          type: 'tool_start',
-          toolName: event.toolName ?? 'unknown',
-          toolId: event.toolId ?? '',
-          input: event.input,
-        });
-        break;
-      case 'tool_output':
-        this.enqueueEvent({
-          ...baseEvent,
-          type: 'tool_output',
-          toolName: event.toolName ?? 'unknown',
-          toolId: event.toolId ?? '',
-          output: event.output,
-        });
-        break;
-      case 'completed':
-        this.status = 'completed';
-        this.enqueueEvent({
-          ...baseEvent,
-          type: 'completed',
-          usage: event.usage ?? { inputTokens: 0, outputTokens: 0 },
-        });
-        break;
-      case 'error':
-        this.status = 'error';
-        this.enqueueEvent({ ...baseEvent, type: 'error', error: event.error ?? 'Unknown error' });
-        break;
-    }
   }
 
   private enqueueEvent(event: ProviderExecutionEvent): void {

@@ -25,6 +25,14 @@ interface HermesProviderModel {
   description?: string;
 }
 
+interface HermesProviderCache {
+  [provider: string]: {
+    fp: string;
+    at: number;
+    models: string[];
+  };
+}
+
 export class HermedianView extends ItemView {
   private plugin: any;
   private messageContainer: HTMLElement | null = null;
@@ -132,16 +140,13 @@ export class HermedianView extends ItemView {
     if (!this.resolvedCliPath) return;
     
     try {
-      // Read Hermes provider models cache
       const { execFile } = await import('child_process');
       const { promisify } = await import('util');
       const execFileAsync = promisify(execFile);
       
-      // Get the hermes config directory
       const { stdout: configDir } = await execFileAsync('bash', ['-c', 'echo ~/.hermes']);
       const hermesDir = configDir.trim();
       
-      // Read provider models cache
       const fs = await import('fs');
       const path = await import('path');
       const cachePath = path.join(hermesDir, 'provider_models_cache.json');
@@ -150,29 +155,31 @@ export class HermedianView extends ItemView {
         const cacheContent = fs.readFileSync(cachePath, 'utf-8');
         const cache = JSON.parse(cacheContent) as Record<string, { models: string[] }>;
         
-        // Build model options from cache
-        const models: HermesProviderModel[] = [];
-        for (const [provider, data] of Object.entries(cache)) {
-          if (data.models) {
-            for (const model of data.models) {
-              models.push({
-                id: model,
-                name: model.split('/').pop() || model,
-                provider: provider,
-              });
+        if (this.modelSelectEl) {
+          this.modelSelectEl.empty();
+          
+          // Group by provider using optgroup
+          const providers = Object.keys(cache).sort();
+          
+          for (const provider of providers) {
+            const data = cache[provider];
+            if (data.models && data.models.length > 0) {
+              // Create optgroup with attribute
+              const optgroup = document.createElement('optgroup');
+              optgroup.label = `── ${provider.toUpperCase()} ──`;
+              this.modelSelectEl.appendChild(optgroup);
+              
+              for (const model of data.models) {
+                const option = document.createElement('option');
+                option.value = model;
+                const shortName = model.split('/').pop() || model;
+                option.textContent = shortName.length > 45 ? shortName.substring(0, 45) + '...' : shortName;
+                optgroup.appendChild(option);
+              }
             }
           }
-        }
-        
-        if (models.length > 0 && this.modelSelectEl) {
-          this.modelSelectEl.empty();
-          for (const model of models) {
-            const opt = this.modelSelectEl.createEl('option', { 
-              value: model.id, 
-              text: `${model.provider} · ${model.name}` 
-            });
-          }
-          this.modelSelectEl.value = this.plugin.settings?.hermes?.model || models[0].id;
+          
+          this.modelSelectEl.value = this.plugin.settings?.hermes?.model || '';
           return;
         }
       }
@@ -180,7 +187,6 @@ export class HermedianView extends ItemView {
       console.warn('Failed to fetch models from Hermes cache:', error);
     }
     
-    // Fallback to static config
     this.populateModelSelectorFallback();
   }
 
@@ -190,9 +196,27 @@ export class HermedianView extends ItemView {
 
     if (this.modelSelectEl) {
       this.modelSelectEl.empty();
+      
+      // Group by provider type using native DOM elements
+      const nvidiaGroup = document.createElement('optgroup');
+      nvidiaGroup.label = '── NVIDIA NIM ──';
+      this.modelSelectEl.appendChild(nvidiaGroup);
+      
+      const nousGroup = document.createElement('optgroup');
+      nousGroup.label = '── NOUS RESEARCH ──';
+      this.modelSelectEl.appendChild(nousGroup);
+      
       for (const model of modelOptions) {
-        const opt = this.modelSelectEl.createEl('option', { value: model.value, text: model.label });
+        const option = document.createElement('option');
+        option.value = model.value;
+        option.textContent = model.label;
+        if (model.value.startsWith('nvidia/')) {
+          nvidiaGroup.appendChild(option);
+        } else {
+          nousGroup.appendChild(option);
+        }
       }
+      
       this.modelSelectEl.value = this.plugin.settings?.hermes?.model || 'nvidia/llama-3.1-nemotron-70b-instruct';
     }
   }
