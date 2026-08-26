@@ -115,16 +115,19 @@ export class HermesExecutionSession implements ProviderExecutionSession {
   }
 
   private spawnProcess(request: ProviderExecutionRequest, runId: string, abortController: AbortController): void {
-    // Hermes CLI chat command syntax (from actual --help output):
-    // hermes chat [-z PROMPT] [-m MODEL] [--provider PROVIDER] [--reasoning LEVEL] [--in DIR]
+    // Hermes CLI chat command syntax (verified from hermes chat --help):
+    // hermes chat -q QUERY -m MODEL --provider PROVIDER --reasoning LEVEL --in DIR
     const args: string[] = ['chat'];
+
+    // Query (user message)
+    args.push('-q', request.userMessage);
 
     // Model
     if (this.config.model) {
       args.push('-m', this.config.model);
     }
 
-    // Provider (default to nvidia-nim for NVIDIA models)
+    // Provider (auto-detect from model name)
     const provider = this.getProviderForModel(this.config.model);
     args.push('--provider', provider);
 
@@ -136,16 +139,6 @@ export class HermesExecutionSession implements ProviderExecutionSession {
     // Working directory
     if (this.config.workingDirectory) {
       args.push('--in', this.config.workingDirectory);
-    }
-
-    // Pass prompt via -z flag
-    args.push('-z', request.userMessage);
-
-    // Context files (if any)
-    if (request.contextFiles?.length) {
-      for (const file of request.contextFiles) {
-        args.push('--context', file);
-      }
     }
 
     console.log(`[Hermes] Spawning: ${this.cliPath} ${args.join(' ')}`);
@@ -164,7 +157,7 @@ export class HermesExecutionSession implements ProviderExecutionSession {
           const event = JSON.parse(line) as HermesEvent;
           this.handleHermesEvent(event, runId);
         } catch {
-          // Skip non-JSON lines (plain text output)
+          // Skip non-JSON lines
         }
       });
     }

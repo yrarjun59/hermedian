@@ -17,6 +17,14 @@ interface ConversationWithLedger {
   ledger: InputLedgerEntry[];
 }
 
+// Model option from Hermes provider cache
+interface HermesProviderModel {
+  id: string;
+  name: string;
+  provider: string;
+  description?: string;
+}
+
 export class HermedianView extends ItemView {
   private plugin: any;
   private messageContainer: HTMLElement | null = null;
@@ -124,12 +132,55 @@ export class HermedianView extends ItemView {
     if (!this.resolvedCliPath) return;
     
     try {
-      // Hermes CLI doesn't have a 'models' command yet, so we skip this
-      // and rely on the static fallback from HermesChatUIConfig
-      // TODO: When Hermes adds `hermes models --json`, use it here
+      // Read Hermes provider models cache
+      const { execFile } = await import('child_process');
+      const { promisify } = await import('util');
+      const execFileAsync = promisify(execFile);
+      
+      // Get the hermes config directory
+      const { stdout: configDir } = await execFileAsync('bash', ['-c', 'echo ~/.hermes']);
+      const hermesDir = configDir.trim();
+      
+      // Read provider models cache
+      const fs = await import('fs');
+      const path = await import('path');
+      const cachePath = path.join(hermesDir, 'provider_models_cache.json');
+      
+      if (fs.existsSync(cachePath)) {
+        const cacheContent = fs.readFileSync(cachePath, 'utf-8');
+        const cache = JSON.parse(cacheContent) as Record<string, { models: string[] }>;
+        
+        // Build model options from cache
+        const models: HermesProviderModel[] = [];
+        for (const [provider, data] of Object.entries(cache)) {
+          if (data.models) {
+            for (const model of data.models) {
+              models.push({
+                id: model,
+                name: model.split('/').pop() || model,
+                provider: provider,
+              });
+            }
+          }
+        }
+        
+        if (models.length > 0 && this.modelSelectEl) {
+          this.modelSelectEl.empty();
+          for (const model of models) {
+            const opt = this.modelSelectEl.createEl('option', { 
+              value: model.id, 
+              text: `${model.provider} · ${model.name}` 
+            });
+          }
+          this.modelSelectEl.value = this.plugin.settings?.hermes?.model || models[0].id;
+          return;
+        }
+      }
     } catch (error) {
-      console.warn('Failed to fetch models from Hermes:', error);
+      console.warn('Failed to fetch models from Hermes cache:', error);
     }
+    
+    // Fallback to static config
     this.populateModelSelectorFallback();
   }
 
@@ -197,7 +248,7 @@ export class HermedianView extends ItemView {
       }
     });
 
-    // 3. Model selector (right of input)
+    // 3. Model selector (right) - dynamic from Hermes provider cache
     this.modelSelectEl = composer.createEl('select', { cls: 'hermedian-model-select' });
     this.populateModelSelectorFallback();
 
@@ -208,7 +259,7 @@ export class HermedianView extends ItemView {
       ProviderRegistry.getChatUIConfig('hermes').applyModelDefaults(target.value, this.plugin.settings as unknown as Record<string, unknown>);
     });
 
-    // 4. Send button (far right, circular)
+    // 4. Send button (far right, circular, white)
     const sendBtn = composer.createEl('button', { 
       cls: 'hermedian-send-btn',
       attr: { title: 'Send' }
