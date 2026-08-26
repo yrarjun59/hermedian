@@ -48,10 +48,10 @@ Enable in Obsidian: Settings → Community plugins → Enable "Hermedian"
 
 ```
 src/
-├── main.ts                      # Plugin entry, view registration
+├── main.ts                      # Plugin entry point
 ├── core/                        # Provider-neutral runtime
 │   ├── providers/               # Registry, settings, environment
-│   ├── execution/               # Backend, session, events, warm pool (LRU)
+│   ├── execution/               # Backend, session, events, warm pool
 │   ├── bootstrap/               # Storage, sessions, tab migration
 │   └── types/                   # Shared contracts (chat, settings, tools)
 ├── providers/hermes/            # Hermes Agent adapter
@@ -66,14 +66,88 @@ src/
 └── shared/                      # Reusable components
 ```
 
-## Status
+## Features
 
-**Early development** — chat view + settings scaffold complete. Next: inline edit, conversation persistence, Hermes CLI JSON streaming.
+- **Chat sidebar** — Talk to Hermes Agent inside Obsidian
+- **Vault = working directory** — Agent reads, writes, edits, searches in your actual vault
+- **Inline edit** — Select text → hotkey → agent edits directly with diff preview
+- **@mention** — Reference vault files, external paths, subagents in chat
+- **/commands & $skills** — Reusable prompt templates (vault-level + user-level)
+- **Plan mode** — Agent explores → proposes plan → you approve → executes
+- **MCP servers** — Connect external tools via Hermes Agent's native MCP config
+- **Tabs & session management** — Multiple conversations, persistent across restarts
+- **Free/offline-first** — Works with local models + free NVIDIA NIM API (no paid keys)
+
+## Requirements
+
+- [Hermes Agent CLI](https://github.com/hermes-agent/hermes-agent) — installed and in PATH
+- Obsidian v1.13.0+
+- Desktop only (macOS, Linux, Windows)
+
+## Install
+
+### From source (development)
+
+```bash
+cd /path/to/vault/.obsidian/plugins
+git clone https://github.com/yrarjun59/hermedian.git
+cd hermedian
+npm install --legacy-peer-deps
+npm run build
+```
+
+Enable in Obsidian: Settings → Community plugins → Enable "Hermedian"
+
+## Usage
+
+- **Open chat**: Ribbon icon (bot) or command palette → "Open chat view"
+- **New conversation**: `Ctrl+N` or + button in sidebar
+- **Inline edit**: Select text → hotkey → diff preview → accept
+- **@mention**: Reference vault files, external paths, subagents
+- **/commands**: Reusable prompt templates (vault + user scope)
+
+## Settings
+
+- **Hermes CLI path** — Path to `hermes` executable (auto-detected if empty)
+- **Default model** — Choose from NVIDIA NIM models
+- **Reasoning effort** — Low / Medium / High
+- **Safe mode** — Auto / Ask / YOLO
+- **MCP servers** — Enable external tool connections
+- **Environment variables** — API keys, custom endpoints
+- **Max warm processes** — Concurrent agent limit (3-10)
+
+## Privacy & Costs
+
+- **No telemetry** — Plugin doesn't track usage
+- **Local first** — Hermes CLI runs on your machine
+- **API calls** — Only your prompts + relevant context go to NVIDIA NIM
+- **Free tier** — NVIDIA NIM free tier is generous for personal use
+- **No lock-in** — Your notes stay as plain Markdown files
+
+## Troubleshooting
+
+| Problem | Fix |
+|---------|-----|
+| Plugin not in list | Restart Obsidian. Check `manifest.json` exists in plugin folder |
+| "Cannot reach Hermes" | Check Hermes CLI works in terminal. Verify API key in settings |
+| Blank sidebar | Reload Obsidian (Cmd+R / Ctrl+R). Check DevTools Console for errors |
+| Settings not saving | Check Obsidian DevTools Console for errors |
+| No response from Hermes | Verify Hermes CLI works in terminal. Check API key |
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Architecture questions welcome in issues.
+Issues and PRs welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-[MIT](LICENSE) — Hermedian Contributors
+MIT License — See [LICENSE](LICENSE) for details.
+
+## Links
+
+- **Hermes Agent**: [github.com/hermes-agent/hermes-agent](https://github.com/hermes-agent/hermes-agent)
+- **NVIDIA NIM**: [build.nvidia.com](https://build.nvidia.com)
+- **Obsidian**: [obsidian.md](https://obsidian.md)
+
+---
+
+**Made with ❤️ for the Obsidian + AI community**
