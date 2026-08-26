@@ -1,5 +1,5 @@
 // src/core/providers/ProviderRegistry.ts
-import type { ProviderCapabilities, ProviderChatUIConfig, ProviderConversationHistoryService, ProviderId, ProviderModule, ProviderRegistration, ProviderSettingsReconciler, ProviderSettingsStorageAdapter,ProviderTaskResultInterpreter } from './types';
+import type { ProviderCapabilities, ProviderChatUIConfig, ProviderConversationHistoryService, ProviderId, ProviderRegistration, ProviderSettingsReconciler, ProviderSettingsStorageAdapter,ProviderTaskResultInterpreter } from './types';
 
 export class ProviderRegistry {
   private static registrations: Partial<Record<ProviderId, ProviderRegistration>> = {};

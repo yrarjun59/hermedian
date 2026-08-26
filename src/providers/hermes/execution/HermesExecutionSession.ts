@@ -66,6 +66,21 @@ export class HermesExecutionSession implements ProviderExecutionSession {
     return () => this.sessionEventHandlers.delete(handler);
   }
 
+  // Fork/rewind support - stub implementations for Hermes CLI provider
+  async forkFrom(_sessionId: string, _resumeAtMessageId: string): Promise<ProviderExecutionSession> {
+    // For Hermes CLI, forking creates a new session that will resume from a message
+    // The actual resume logic is handled by the resumeSeed in createSession
+    const newSessionId = `hermes-${this.config.conversationId}-${Date.now()}-fork`;
+    return new HermesExecutionSession(newSessionId, this.config);
+  }
+
+  async rewindTo(_messageId: string): Promise<void> {
+    // For Hermes CLI, rewinding means stopping current execution
+    // The conversation history is managed at the repository level
+    await this.stop();
+    this.status = 'idle';
+  }
+
   private createStream(runId: string, abortController: AbortController): AsyncIterable<ProviderExecutionEvent> {
     return {
       [Symbol.asyncIterator]: () => ({
@@ -87,7 +102,7 @@ export class HermesExecutionSession implements ProviderExecutionSession {
 
             abortController.signal.addEventListener('abort', () => {
               this.ended = true;
-              const idx = this.waiters.indexOf((w) => true); // Find any waiter
+              const idx = this.waiters.indexOf((_w) => true); // Find any waiter
               if (idx >= 0) {
                 this.waiters.splice(idx, 1);
               }

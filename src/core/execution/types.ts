@@ -18,12 +18,18 @@ export interface ProviderExecutionSession {
   execute(request: ProviderExecutionRequest): Promise<ProviderExecutionRun>;
   stop(): Promise<void>;
   onEvent(handler: (event: ProviderSessionEvent) => void): () => void;
+  
+  // Fork/rewind support
+  forkFrom(sessionId: string, resumeAtMessageId: string): Promise<ProviderExecutionSession>;
+  rewindTo(messageId: string): Promise<void>;
 }
 
 export interface ProviderExecutionRun {
   id: string;
   abortController: AbortController;
   stream: AsyncIterable<ProviderExecutionEvent>;
+  forkedFrom?: { sessionId: string; messageId: string };
+  rewoundFrom?: { sessionId: string; messageId: string };
 }
 
 export interface ProviderExecutionRequest {

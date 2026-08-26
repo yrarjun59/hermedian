@@ -1,11 +1,9 @@
 // src/core/execution/ProviderExecutionLifecycleRegistry.ts
 import type {
   ProviderExecutionBackend,
-  ProviderExecutionInvalidationReason,
-  ProviderExecutionSession,
   ProviderExecutionSessionLease,
   ProviderExecutionTransitionHook,
-  ProviderExecutionTransitionScope,
+  ProviderSessionConfig,
 } from './types';
 
 export class ProviderExecutionLifecycleRegistry {
@@ -17,7 +15,7 @@ export class ProviderExecutionLifecycleRegistry {
   acquire(
     backend: ProviderExecutionBackend,
     config: { providerId: string; conversationId: string },
-    ownerKind: string
+    _ownerKind: string
   ): ProviderExecutionSessionLease {
     if (this.disposed) {
       throw new Error('Registry disposed');
@@ -29,7 +27,15 @@ export class ProviderExecutionLifecycleRegistry {
     }
 
     const generation = ++this.generation;
-    const session = backend.createSession(config as any);
+    const sessionConfig: ProviderSessionConfig = {
+      providerId: config.providerId,
+      conversationId: config.conversationId,
+      workingDirectory: process.cwd(),
+      environment: {},
+      model: '',
+      effortLevel: '',
+    };
+    const session = backend.createSession(sessionConfig);
     
     const lease: ProviderExecutionSessionLease = {
       generation,

@@ -1,11 +1,14 @@
 // src/providers/hermes/ui/HermesChatUIConfig.ts
-import type { ProviderChatUIConfig, ProviderReasoningOption,ProviderUIOption } from '../../../core/providers/types';
-import type { HermesProviderSettings } from '../../../core/types/settings';
+import type { ProviderChatUIConfig, ProviderReasoningOption, ProviderUIOption } from '../../../core/providers/types';
 
 const HERMES_MODELS: ProviderUIOption[] = [
-  { value: 'sonnet', label: 'Sonnet', description: 'Balanced speed and capability' },
-  { value: 'opus', label: 'Opus', description: 'Most capable, slower' },
-  { value: 'haiku', label: 'Haiku', description: 'Fastest, good for simple tasks' },
+  { value: 'nvidia/nemotron-3-ultra-550b-a55b', label: 'Nemotron 3 Ultra (550B)', description: 'Best reasoning, largest model' },
+  { value: 'nvidia/llama-3.1-nemotron-70b-instruct', label: 'Llama 3.1 Nemotron 70B', description: 'Best coding model' },
+  { value: 'nvidia/llama-3.3-nemotron-super-49b-v1.5', label: 'Llama 3.3 Nemotron Super 49B', description: 'Strong coding + UI logic' },
+  { value: 'nvidia/nemotron-3-super-120b-a12b', label: 'Nemotron 3 Super (120B)', description: 'Graph/embeddings, strong reasoning' },
+  { value: 'nvidia/llama-3.1-nemotron-51b-instruct', label: 'Llama 3.1 Nemotron 51B', description: 'Balanced coding' },
+  { value: 'nvidia/nemotron-3-nano-30b-a3b', label: 'Nemotron 3 Nano (30B)', description: 'Fast, efficient' },
+  { value: 'nvidia/nemotron-mini-4b-instruct', label: 'Nemotron Mini (4B)', description: 'Tiny, fast, lint/tests' },
 ];
 
 const EFFORT_LEVELS: ProviderReasoningOption[] = [
@@ -20,7 +23,7 @@ export const hermesChatUIConfig: ProviderChatUIConfig = {
   },
 
   getDefaultModel(_settings: Record<string, unknown>): string | null {
-    return 'sonnet';
+    return 'nvidia/llama-3.1-nemotron-70b-instruct';
   },
 
   ownsModel(model: string, _settings: Record<string, unknown>): boolean {

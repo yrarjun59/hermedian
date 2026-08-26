@@ -9,4 +9,8 @@ export interface ProviderExecutionSession {
   execute(request: ProviderExecutionRequest): Promise<ProviderExecutionRun>;
   stop(): Promise<void>;
   onEvent(handler: (event: ProviderSessionEvent) => void): () => void;
+  
+  // Fork/rewind support
+  forkFrom(sessionId: string, resumeAtMessageId: string): Promise<ProviderExecutionSession>;
+  rewindTo(messageId: string): Promise<void>;
 }

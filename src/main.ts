@@ -2,7 +2,7 @@
 import './providers'; // Register providers at import time
 
 import type { Editor, WorkspaceLeaf } from 'obsidian';
-import { MarkdownView, Notice, Plugin, setIcon,TFile } from 'obsidian';
+import { MarkdownView, Notice, Plugin } from 'obsidian';
 
 import { VIEW_TYPE_HERMEDIAN } from './core/types/chat';
 import type { HermedianSettings } from './core/types/settings';
@@ -37,8 +37,8 @@ export default class HermedianPlugin extends Plugin {
     this.addCommand({
       id: 'inline-edit',
       name: 'Inline edit selection',
-      editorCallback: (editor: Editor, view: MarkdownView) => {
-        this.openInlineEdit(editor, view);
+      editorCallback: (editor: Editor, _view: MarkdownView) => {
+        this.openInlineEdit(editor);
       },
     });
 
@@ -78,7 +78,7 @@ export default class HermedianPlugin extends Plugin {
     }
   }
 
-  private openInlineEdit(editor: Editor, view: MarkdownView) {
+  private openInlineEdit(editor: Editor) {
     const selection = editor.getSelection();
     if (!selection) {
       new Notice('Select some text first');
