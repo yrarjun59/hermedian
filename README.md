@@ -2,7 +2,7 @@
 
 **Hermes Agent embedded in Obsidian sidebar** — your vault becomes the agent's working directory.
 
-Inspired by [Claudian](https://github.com/YishenTu/claudian) and [jsun2020/hermes-agent-obsidian-plugin](https://github.com/jsun2020/hermes-agent-obsidian-plugin).
+Inspired by [Claudian](https://github.com/YishenTu/claudian)
 
 ## What is this?
 
@@ -150,4 +150,4 @@ MIT License — See [LICENSE](LICENSE) for details.
 
 ---
 
-**Made with ❤️ for the Obsidian + AI community**
+**Made with ❤️ for the Obsidian's community**
