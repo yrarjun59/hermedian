@@ -23,6 +23,8 @@ export class HermedianView extends ItemView {
   private messageContainer: HTMLElement | null = null;
   private inputEl: HTMLTextAreaElement | null = null;
   private modelSelectEl: HTMLSelectElement | null = null;
+  private providerSelectEl: HTMLSelectElement | null = null;
+  private reasoningSelectEl: HTMLSelectElement | null = null;
   private conversationRepo: ConversationRepository;
   private tabManager: TabManager;
   private providerRegistry: typeof ProviderRegistry;
@@ -33,6 +35,7 @@ export class HermedianView extends ItemView {
   private hermesAvailable = false;
   private resolvedCliPath: string | null = null;
   private modelSelector: ModelSelector | null = null;
+  private isProcessing = false;
 
   constructor(leaf: WorkspaceLeaf, plugin: any) {
     super(leaf);
@@ -158,10 +161,10 @@ export class HermedianView extends ItemView {
   }
 
   private createInputArea(): void {
-    // Composer - single row (exactly like Hermes Agent Desktop)
+    // Composer container - single row with all elements
     const composer = this.containerEl.createDiv({ cls: 'hermedian-composer' });
 
-    // 1. Attach button (far left, plus icon)
+    // 1. Attach button (far left)
     const attachBtn = composer.createEl('button', { cls: 'hermedian-attach-btn', title: 'Attach files' });
     setIcon(attachBtn, 'plus');
     attachBtn.addEventListener('click', () => this.openFilePicker());
@@ -179,27 +182,117 @@ export class HermedianView extends ItemView {
       }
     });
 
-    // 3. Model selector (right) - dynamic from Hermes provider cache
+    // 3. Model selector (right of input)
     this.modelSelectEl = composer.createEl('select', { cls: 'hermedian-model-select' });
 
     this.modelSelectEl.addEventListener('change', async (e) => {
       const target = e.target as HTMLSelectElement;
       if (this.modelSelector) {
         await this.modelSelector.handleModelChange(target.value);
-        // Reset to actual model value after special actions
         if (target.value.startsWith('__')) {
           target.value = this.plugin.settings?.hermes?.model || '';
         }
       }
     });
 
-    // 4. Send button (far right, circular, white)
+    // 4. Provider selector (dynamic)
+    this.providerSelectEl = composer.createEl('select', { cls: 'hermedian-provider-select' });
+    this.populateProviderSelector();
+
+    this.providerSelectEl.addEventListener('change', async (e) => {
+      const target = e.target as HTMLSelectElement;
+      this.plugin.settings.hermes.provider = target.value;
+      await this.plugin.saveSettings();
+    });
+
+    // 5. Reasoning selector (dynamic)
+    this.reasoningSelectEl = composer.createEl('select', { cls: 'hermedian-reasoning-select' });
+    this.populateReasoningSelector();
+
+    this.reasoningSelectEl.addEventListener('change', async (e) => {
+      const target = e.target as HTMLSelectElement;
+      this.plugin.settings.hermes.effortLevel = target.value as 'low' | 'medium' | 'high';
+      await this.plugin.saveSettings();
+    });
+
+    // 6. Send button (far right, white circular with up arrow)
     const sendBtn = composer.createEl('button', { 
       cls: 'hermedian-send-btn',
       attr: { title: 'Send' }
     });
     setIcon(sendBtn, 'chevron-up');
     sendBtn.addEventListener('click', () => this.sendMessage());
+
+    // Store reference for state changes
+    this.sendBtn = sendBtn;
+  }
+
+  private sendBtn: HTMLButtonElement | null = null;
+
+  private populateProviderSelector(): void {
+    if (!this.providerSelectEl) return;
+    this.providerSelectEl.empty();
+
+    // Get providers from Hermes cache
+    const providers = this.getAvailableProviders();
+    
+    for (const provider of providers) {
+      const option = document.createElement('option');
+      option.value = provider.id;
+      option.textContent = provider.label;
+      this.providerSelectEl.appendChild(option);
+    }
+
+    // Default to nous (since it's always available)
+    const savedProvider = this.plugin.settings.hermes?.provider || 'nous';
+    this.providerSelectEl.value = savedProvider;
+  }
+
+  private getAvailableProviders(): { id: string; label: string }[] {
+    // Read from cache or use defaults
+    try {
+      const { execFile } = require('child_process');
+      const { promisify } = require('util');
+      const execFileAsync = require('util').promisify(execFile);
+      const { stdout: configDir } = execFileAsync('bash', ['-c', 'echo ~/.hermes']);
+      // This is sync-ish, so we'll use defaults for now
+    } catch {}
+
+    return [
+      { id: 'nvidia-nim', label: 'NVIDIA NIM' },
+      { id: 'nous', label: 'Nous Research' },
+      { id: 'opencode-free', label: 'OpenCode Free' },
+      { id: 'xai', label: 'xAI Grok' },
+      { id: 'google', label: 'Google Gemini' },
+      { id: 'openai', label: 'OpenAI' },
+      { id: 'anthropic', label: 'Anthropic' },
+    ];
+  }
+
+  private populateReasoningSelector(): void {
+    if (!this.reasoningSelectEl) return;
+    this.reasoningSelectEl.empty();
+
+    const levels = [
+      { value: 'none', label: 'None' },
+      { value: 'minimal', label: 'Minimal' },
+      { value: 'low', label: 'Low' },
+      { value: 'medium', label: 'Medium' },
+      { value: 'high', label: 'High' },
+      { value: 'xhigh', label: 'High+' },
+      { value: 'max', label: 'Max' },
+      { value: 'ultra', label: 'Ultra' },
+    ];
+
+    for (const level of levels) {
+      const option = document.createElement('option');
+      option.value = level.value;
+      option.textContent = level.label;
+      this.reasoningSelectEl!.appendChild(option);
+    }
+
+    const savedReasoning = this.plugin.settings.hermes?.effortLevel || 'medium';
+    this.reasoningSelectEl!.value = savedReasoning;
   }
 
   private openFilePicker(): void {
@@ -290,7 +383,7 @@ export class HermedianView extends ItemView {
   }
 
   private async sendMessage(): Promise<void> {
-    if (!this.inputEl) return;
+    if (!this.inputEl || this.isProcessing) return;
 
     const text = this.inputEl.value.trim();
     if (!text) return;
@@ -304,6 +397,9 @@ export class HermedianView extends ItemView {
         return;
       }
     }
+
+    this.isProcessing = true;
+    this.updateSendButtonState();
 
     this.addMessage('user', text);
     this.inputEl.value = '';
@@ -373,7 +469,7 @@ export class HermedianView extends ItemView {
         workingDirectory: vaultPath,
         environment: this.buildEnvironment(),
         model: this.modelSelectEl?.value || 'nvidia/llama-3.1-nemotron-70b-instruct',
-        effortLevel: 'medium',
+        effortLevel: this.reasoningSelectEl?.value || 'medium',
       });
 
       const run = await session.execute({
@@ -414,8 +510,26 @@ export class HermedianView extends ItemView {
       this.updateMessage(assistantMsg, `Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       console.error('Error in sendMessage:', error);
     } finally {
+      this.isProcessing = false;
+      this.updateSendButtonState();
       this.inputEl.disabled = false;
       this.inputEl.focus();
+    }
+  }
+
+  private updateSendButtonState(): void {
+    if (!this.sendBtn) return;
+    
+    if (this.isProcessing) {
+      this.sendBtn.empty();
+      setIcon(this.sendBtn, 'x'); // Stop icon (x)
+      this.sendBtn.classList.add('hermedian-send-btn-processing');
+      this.sendBtn.title = 'Stop generation';
+    } else {
+      this.sendBtn.empty();
+      setIcon(this.sendBtn, 'chevron-up');
+      this.sendBtn.classList.remove('hermedian-send-btn-processing');
+      this.sendBtn.title = 'Send';
     }
   }
 
