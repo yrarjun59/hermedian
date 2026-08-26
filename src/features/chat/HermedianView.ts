@@ -9,28 +9,13 @@ import type { Conversation } from '../../core/types/chat';
 import { VIEW_TYPE_HERMEDIAN } from '../../core/types/chat';
 import { TabManager } from './TabManager';
 import { resolveCliPath } from '../../providers/hermes/settings';
+import { createModelSelector, ModelSelector } from './ModelSelector';
 import type { ProviderExecutionBackend, ProviderExecutionEvent, ProviderSessionConfig } from '../../core/execution/types';
 
 // Define ConversationWithLedger since it's not exported from core/types/chat
 interface ConversationWithLedger {
   conversation: Conversation;
   ledger: InputLedgerEntry[];
-}
-
-// Model option from Hermes provider cache
-interface HermesProviderModel {
-  id: string;
-  name: string;
-  provider: string;
-  description?: string;
-}
-
-interface HermesProviderCache {
-  [provider: string]: {
-    fp: string;
-    at: number;
-    models: string[];
-  };
 }
 
 export class HermedianView extends ItemView {
@@ -47,6 +32,7 @@ export class HermedianView extends ItemView {
   private hermesStatusEl: HTMLElement | null = null;
   private hermesAvailable = false;
   private resolvedCliPath: string | null = null;
+  private modelSelector: ModelSelector | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: any) {
     super(leaf);
@@ -82,8 +68,14 @@ export class HermedianView extends ItemView {
     // Load last conversation or create new one
     await this.loadOrCreateConversation();
 
-    // Fetch models from Hermes CLI dynamically
-    await this.fetchModelsFromHermes();
+    // Initialize model selector
+    this.modelSelector = createModelSelector(
+      this.containerEl,
+      this.modelSelectEl!,
+      this.plugin,
+      this.resolvedCliPath
+    );
+    await this.modelSelector.loadModels();
 
     // Check Hermes availability and resolve CLI path
     await this.checkHermesAvailability();
@@ -134,91 +126,6 @@ export class HermedianView extends ItemView {
   private openHermesInstallGuide(): void {
     new Notice('Opening Hermes Agent install guide...');
     window.open('https://github.com/hermes-agent/hermes-agent#installation', '_blank');
-  }
-
-  private async fetchModelsFromHermes(): Promise<void> {
-    if (!this.resolvedCliPath) return;
-    
-    try {
-      const { execFile } = await import('child_process');
-      const { promisify } = await import('util');
-      const execFileAsync = promisify(execFile);
-      
-      const { stdout: configDir } = await execFileAsync('bash', ['-c', 'echo ~/.hermes']);
-      const hermesDir = configDir.trim();
-      
-      const fs = await import('fs');
-      const path = await import('path');
-      const cachePath = path.join(hermesDir, 'provider_models_cache.json');
-      
-      if (fs.existsSync(cachePath)) {
-        const cacheContent = fs.readFileSync(cachePath, 'utf-8');
-        const cache = JSON.parse(cacheContent) as Record<string, { models: string[] }>;
-        
-        if (this.modelSelectEl) {
-          this.modelSelectEl.empty();
-          
-          // Group by provider using optgroup
-          const providers = Object.keys(cache).sort();
-          
-          for (const provider of providers) {
-            const data = cache[provider];
-            if (data.models && data.models.length > 0) {
-              // Create optgroup with attribute
-              const optgroup = document.createElement('optgroup');
-              optgroup.label = `── ${provider.toUpperCase()} ──`;
-              this.modelSelectEl.appendChild(optgroup);
-              
-              for (const model of data.models) {
-                const option = document.createElement('option');
-                option.value = model;
-                const shortName = model.split('/').pop() || model;
-                option.textContent = shortName.length > 45 ? shortName.substring(0, 45) + '...' : shortName;
-                optgroup.appendChild(option);
-              }
-            }
-          }
-          
-          this.modelSelectEl.value = this.plugin.settings?.hermes?.model || '';
-          return;
-        }
-      }
-    } catch (error) {
-      console.warn('Failed to fetch models from Hermes cache:', error);
-    }
-    
-    this.populateModelSelectorFallback();
-  }
-
-  private populateModelSelectorFallback(): void {
-    const chatUIConfig = ProviderRegistry.getChatUIConfig('hermes');
-    const modelOptions = chatUIConfig.getModelOptions(this.plugin.settings as unknown as Record<string, unknown>);
-
-    if (this.modelSelectEl) {
-      this.modelSelectEl.empty();
-      
-      // Group by provider type using native DOM elements
-      const nvidiaGroup = document.createElement('optgroup');
-      nvidiaGroup.label = '── NVIDIA NIM ──';
-      this.modelSelectEl.appendChild(nvidiaGroup);
-      
-      const nousGroup = document.createElement('optgroup');
-      nousGroup.label = '── NOUS RESEARCH ──';
-      this.modelSelectEl.appendChild(nousGroup);
-      
-      for (const model of modelOptions) {
-        const option = document.createElement('option');
-        option.value = model.value;
-        option.textContent = model.label;
-        if (model.value.startsWith('nvidia/')) {
-          nvidiaGroup.appendChild(option);
-        } else {
-          nousGroup.appendChild(option);
-        }
-      }
-      
-      this.modelSelectEl.value = this.plugin.settings?.hermes?.model || 'nvidia/llama-3.1-nemotron-70b-instruct';
-    }
   }
 
   private createHeader(): void {
@@ -274,13 +181,16 @@ export class HermedianView extends ItemView {
 
     // 3. Model selector (right) - dynamic from Hermes provider cache
     this.modelSelectEl = composer.createEl('select', { cls: 'hermedian-model-select' });
-    this.populateModelSelectorFallback();
 
     this.modelSelectEl.addEventListener('change', async (e) => {
       const target = e.target as HTMLSelectElement;
-      this.plugin.settings.hermes.model = target.value;
-      await this.plugin.saveSettings();
-      ProviderRegistry.getChatUIConfig('hermes').applyModelDefaults(target.value, this.plugin.settings as unknown as Record<string, unknown>);
+      if (this.modelSelector) {
+        await this.modelSelector.handleModelChange(target.value);
+        // Reset to actual model value after special actions
+        if (target.value.startsWith('__')) {
+          target.value = this.plugin.settings?.hermes?.model || '';
+        }
+      }
     });
 
     // 4. Send button (far right, circular, white)
