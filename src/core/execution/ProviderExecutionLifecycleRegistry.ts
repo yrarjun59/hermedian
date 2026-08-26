@@ -1,11 +1,11 @@
 // src/core/execution/ProviderExecutionLifecycleRegistry.ts
 import type {
   ProviderExecutionBackend,
-  ProviderExecutionSession,
-  ProviderExecutionTransitionScope,
-  ProviderExecutionTransitionHook,
-  ProviderExecutionSessionLease,
   ProviderExecutionInvalidationReason,
+  ProviderExecutionSession,
+  ProviderExecutionSessionLease,
+  ProviderExecutionTransitionHook,
+  ProviderExecutionTransitionScope,
 } from './types';
 
 export class ProviderExecutionLifecycleRegistry {

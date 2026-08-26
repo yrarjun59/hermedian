@@ -1,7 +1,8 @@
 // src/providers/hermes/execution/HermesExecutionSession.ts
-import { spawn, ChildProcess } from 'child_process';
-import { createInterface, Interface as ReadLineInterface } from 'readline';
-import type { ProviderExecutionSession, ProviderExecutionRequest, ProviderExecutionRun, ProviderSessionEvent, ProviderSessionConfig } from '../../../core/execution/types';
+import { ChildProcess,spawn } from 'child_process';
+import { createInterface } from 'readline';
+
+import type { ProviderExecutionEvent,ProviderExecutionRequest, ProviderExecutionRun, ProviderExecutionSession, ProviderSessionConfig, ProviderSessionEvent } from '../../../core/execution/types';
 
 interface HermesEvent {
   type: 'text_delta' | 'tool_start' | 'tool_output' | 'completed' | 'error' | 'thinking_delta';
@@ -17,8 +18,11 @@ interface HermesEvent {
 export class HermesExecutionSession implements ProviderExecutionSession {
   status: 'idle' | 'running' | 'waiting' | 'completed' | 'error' = 'idle';
   private process: ChildProcess | null = null;
-  private eventHandlers: Set<(event: ProviderSessionEvent) => void> = new Set();
+  private eventQueue: ProviderExecutionEvent[] = [];
+  private waiters: Array<(value: ProviderExecutionEvent) => void> = [];
   private currentRunId: string | null = null;
+  private ended = false;
+  private sessionEventHandlers: Set<(event: ProviderSessionEvent) => void> = new Set();
 
   constructor(public id: string, public config: ProviderSessionConfig) {}
 
@@ -26,6 +30,9 @@ export class HermesExecutionSession implements ProviderExecutionSession {
     const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     this.currentRunId = runId;
     this.status = 'running';
+    this.ended = false;
+    this.eventQueue = [];
+    this.waiters = [];
 
     const abortController = new AbortController();
     const stream = this.createStream(runId, abortController);
@@ -46,23 +53,57 @@ export class HermesExecutionSession implements ProviderExecutionSession {
     }
     this.status = 'idle';
     this.currentRunId = null;
+    this.ended = true;
+    // Resolve all waiters
+    for (const resolve of this.waiters) {
+      resolve({ type: 'cancelled', runId: '', timestamp: Date.now() });
+    }
+    this.waiters = [];
   }
 
   onEvent(handler: (event: ProviderSessionEvent) => void): () => void {
-    this.eventHandlers.add(handler);
-    return () => this.eventHandlers.delete(handler);
+    this.sessionEventHandlers.add(handler);
+    return () => this.sessionEventHandlers.delete(handler);
   }
 
-  private emit(event: ProviderSessionEvent): void {
-    for (const handler of this.eventHandlers) {
-      handler(event);
-    }
+  private createStream(runId: string, abortController: AbortController): AsyncIterable<ProviderExecutionEvent> {
+    return {
+      [Symbol.asyncIterator]: () => ({
+        next: async (): Promise<IteratorResult<ProviderExecutionEvent>> => {
+          if (this.ended && this.eventQueue.length === 0) {
+            return { done: true, value: undefined };
+          }
+
+          if (this.eventQueue.length > 0) {
+            const event = this.eventQueue.shift()!;
+            return { done: false, value: event };
+          }
+
+          // Wait for next event
+          return new Promise<IteratorResult<ProviderExecutionEvent>>((resolve) => {
+            this.waiters.push((event) => {
+              resolve({ done: false, value: event });
+            });
+
+            abortController.signal.addEventListener('abort', () => {
+              this.ended = true;
+              const idx = this.waiters.indexOf((w) => true); // Find any waiter
+              if (idx >= 0) {
+                this.waiters.splice(idx, 1);
+              }
+              resolve({ done: true, value: undefined });
+            });
+          });
+        },
+        return: async () => {
+          this.ended = true;
+          return { done: true, value: undefined };
+        },
+      }),
+    };
   }
 
   private spawnProcess(request: ProviderExecutionRequest, runId: string, abortController: AbortController): void {
-    const { spawn } = require('child_process') as typeof import('child_process');
-    const { createInterface } = require('readline') as typeof import('readline');
-
     const args = [
       'chat',
       '--json',
@@ -88,7 +129,7 @@ export class HermesExecutionSession implements ProviderExecutionSession {
         if (abortController.signal.aborted) return;
         try {
           const event = JSON.parse(line) as HermesEvent;
-          this.handleHermesEvent(event);
+          this.handleHermesEvent(event, runId);
         } catch {
           // Skip non-JSON lines
         }
@@ -104,17 +145,19 @@ export class HermesExecutionSession implements ProviderExecutionSession {
 
     this.process.on('exit', (code) => {
       if (code === 0) {
-        this.emit({ type: 'completed', usage: { inputTokens: 0, outputTokens: 0 } });
+        this.enqueueEvent({ type: 'completed', runId, timestamp: Date.now(), usage: { inputTokens: 0, outputTokens: 0 } });
         this.status = 'completed';
       } else {
-        this.emit({ type: 'error', error: `Process exited with code ${code}` });
+        this.enqueueEvent({ type: 'error', runId, timestamp: Date.now(), error: `Process exited with code ${code}` });
         this.status = 'error';
       }
+      this.ended = true;
     });
 
     this.process.on('error', (err) => {
-      this.emit({ type: 'error', error: err.message });
+      this.enqueueEvent({ type: 'error', runId, timestamp: Date.now(), error: err.message });
       this.status = 'error';
+      this.ended = true;
     });
 
     // Send user message
@@ -131,16 +174,19 @@ export class HermesExecutionSession implements ProviderExecutionSession {
     });
   }
 
-  private handleHermesEvent(event: HermesEvent): void {
+  private handleHermesEvent(event: HermesEvent, runId: string): void {
+    const baseEvent = { runId, timestamp: Date.now() };
+
     switch (event.type) {
       case 'text_delta':
-        this.emit({ type: 'text_delta', content: event.content ?? '' });
+        this.enqueueEvent({ ...baseEvent, type: 'text_delta', content: event.content ?? '' });
         break;
       case 'thinking_delta':
-        this.emit({ type: 'thinking_delta', content: event.content ?? '' });
+        this.enqueueEvent({ ...baseEvent, type: 'thinking_delta', content: event.content ?? '' });
         break;
       case 'tool_start':
-        this.emit({
+        this.enqueueEvent({
+          ...baseEvent,
           type: 'tool_start',
           toolName: event.toolName ?? 'unknown',
           toolId: event.toolId ?? '',
@@ -148,7 +194,8 @@ export class HermesExecutionSession implements ProviderExecutionSession {
         });
         break;
       case 'tool_output':
-        this.emit({
+        this.enqueueEvent({
+          ...baseEvent,
           type: 'tool_output',
           toolId: event.toolId ?? '',
           output: event.output,
@@ -156,20 +203,29 @@ export class HermesExecutionSession implements ProviderExecutionSession {
         break;
       case 'completed':
         this.status = 'completed';
-        this.emit({
+        this.enqueueEvent({
+          ...baseEvent,
           type: 'completed',
           usage: event.usage ?? { inputTokens: 0, outputTokens: 0 },
         });
         break;
       case 'error':
         this.status = 'error';
-        this.emit({ type: 'error', error: event.error ?? 'Unknown error' });
+        this.enqueueEvent({ ...baseEvent, type: 'error', error: event.error ?? 'Unknown error' });
         break;
     }
   }
 
-  private async *createStream(runId: string, abortController: AbortController): AsyncGenerator<HermesEvent> {
-    // Stream is handled via events in this implementation
-    // Yield is for compatibility with the interface
+  private enqueueEvent(event: ProviderExecutionEvent): void {
+    this.eventQueue.push(event);
+    const waiter = this.waiters.shift();
+    if (waiter) {
+      waiter(event);
+    }
+    // Also emit to session event handlers (without runId/timestamp)
+    const sessionEvent: ProviderSessionEvent = event as ProviderSessionEvent;
+    for (const handler of this.sessionEventHandlers) {
+      handler(sessionEvent);
+    }
   }
 }

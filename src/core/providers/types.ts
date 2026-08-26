@@ -1,6 +1,13 @@
 // src/core/providers/types.ts
 export type ProviderId = string;
 
+export type EnvironmentScope = 'shared' | `provider:${string}`;
+
+export interface AppTabManagerState {
+  openTabs: Array<{ tabId: string; conversationId: string | null; draftModel?: string }>;
+  activeTabId: string | null;
+}
+
 export interface ProviderCapabilities {
   providerId: ProviderId;
   supportsNativeHistory: boolean;

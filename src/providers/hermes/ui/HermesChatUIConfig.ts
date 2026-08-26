@@ -1,5 +1,5 @@
 // src/providers/hermes/ui/HermesChatUIConfig.ts
-import type { ProviderChatUIConfig, ProviderUIOption, ProviderReasoningOption } from '../../../core/providers/types';
+import type { ProviderChatUIConfig, ProviderReasoningOption,ProviderUIOption } from '../../../core/providers/types';
 import type { HermesProviderSettings } from '../../../core/types/settings';
 
 const HERMES_MODELS: ProviderUIOption[] = [

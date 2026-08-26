@@ -1,5 +1,5 @@
 // src/core/execution/ProviderExecutionSession.ts
-import type { ProviderSessionConfig, ProviderExecutionRun, ProviderExecutionRequest, ProviderSessionEvent } from './types';
+import type { ProviderExecutionRequest, ProviderExecutionRun, ProviderSessionConfig, ProviderSessionEvent } from './types';
 
 export interface ProviderExecutionSession {
   id: string;

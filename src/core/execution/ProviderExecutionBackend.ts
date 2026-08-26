@@ -1,5 +1,5 @@
 // src/core/execution/ProviderExecutionBackend.ts
-import type { ProviderSessionConfig, ProviderExecutionSession } from './types';
+import type { ProviderExecutionSession,ProviderSessionConfig } from './types';
 
 export interface ProviderExecutionBackend {
   readonly providerId: string;

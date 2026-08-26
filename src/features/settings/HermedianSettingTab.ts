@@ -1,9 +1,9 @@
 // src/features/settings/HermedianSettingTab.ts
 import type { App } from 'obsidian';
-import { PluginSettingTab, Setting, TextComponent, DropdownComponent, ToggleComponent } from 'obsidian';
+import { DropdownComponent, PluginSettingTab, Setting, TextComponent, ToggleComponent } from 'obsidian';
 
-import type HermedianPlugin from '../../main';
 import type { HermedianSettings } from '../../core/types/settings';
+import type HermedianPlugin from '../../main';
 
 export class HermedianSettingTab extends PluginSettingTab {
   plugin: HermedianPlugin;

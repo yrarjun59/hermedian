@@ -1,10 +1,10 @@
-// src/providers/hermes/registration.ts
+import type { ProviderHost } from '../../core/providers/ProviderHost';
 import type { ProviderModule } from '../../core/providers/types';
 import { HERMES_CAPABILITIES } from './capabilities';
 import { HermesExecutionBackend } from './execution/HermesExecutionBackend';
 import { HermesConversationHistoryService } from './history/HermesConversationHistoryService';
-import { hermesChatUIConfig } from './ui/HermesChatUIConfig';
 import { getHermesProviderSettings, updateHermesProviderSettings } from './settings';
+import { hermesChatUIConfig } from './ui/HermesChatUIConfig';
 
 export const hermesProviderRegistration: ProviderModule = {
   id: 'hermes',
@@ -25,7 +25,7 @@ export const hermesProviderRegistration: ProviderModule = {
     legacyTopLevelFields: ['hermesCliPath', 'hermesSafeMode', 'hermesEnabled'],
     normalizeStored: () => false,
   },
-  createExecutionBackend: (plugin) => new HermesExecutionBackend(plugin),
+  createExecutionBackend: (plugin: ProviderHost) => new HermesExecutionBackend(plugin),
   historyService: new HermesConversationHistoryService(),
   taskResultInterpreter: {
     hasAsyncLaunchMarker: () => false,

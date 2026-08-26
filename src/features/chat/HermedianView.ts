@@ -2,8 +2,8 @@
 import type { ViewStateResult, WorkspaceLeaf } from 'obsidian';
 import { ItemView, Notice, setIcon } from 'obsidian';
 
-import type { HermedianSettings } from '../../core/types/settings';
 import { VIEW_TYPE_HERMEDIAN } from '../../core/types/chat';
+import type { HermedianSettings } from '../../core/types/settings';
 
 export class HermedianView extends ItemView {
   private plugin: any;

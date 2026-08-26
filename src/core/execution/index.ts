@@ -1,32 +1,30 @@
 // src/core/execution/index.ts
-export * from './types';
+export * from './events';
 export * from './ProviderExecutionBackend';
-export * from './ProviderExecutionSession';
 export * from './ProviderExecutionLifecycleRegistry';
+export * from './ProviderExecutionSession';
 export * from './ProviderInteractionPort';
 export * from './ProviderSessionSnapshot';
-export * from './events';
-export * from './WarmExecutionPool';
 export * from './types';
 
 // Re-export everything for convenience
 export type {
-  ProviderExecutionBackend,
-  ProviderSessionConfig,
-  ProviderExecutionSession,
-  ProviderExecutionRun,
-  ProviderExecutionInvalidationReason,
-  ProviderExecutionTransitionScope,
-  ProviderExecutionTransitionHook,
-  ProviderExecutionSessionLease,
-  ProviderNativeResumeSeed,
-  ProviderNativePersistence,
-  ProviderInteractionPort,
   ProviderApprovalInteractionRequest,
   ProviderApprovalInteractionResponse,
+  ProviderExecutionBackend,
+  ProviderExecutionInvalidationReason,
+  ProviderExecutionRun,
+  ProviderExecutionSession,
+  ProviderExecutionSessionLease,
+  ProviderExecutionTransitionHook,
+  ProviderExecutionTransitionScope,
+  ProviderInteractionPort,
+  ProviderNativePersistence,
+  ProviderNativeResumeSeed,
+  ProviderSessionConfig,
+  ProviderSessionInvalidation,
   ProviderSessionSnapshot,
   ProviderSessionStatus,
-  ProviderSessionInvalidation,
-  WarmExecutionPool,
   WarmExecutionOwner,
+  WarmExecutionPool,
 } from './types';

@@ -31,4 +31,5 @@ coverage/
 # Internal agent docs (not for GitHub)
 ARCHITECTURE_COMPARISON.md
 AGENTIC_WORKFLOW.md
-IDEA.mdHERMES_SWARM_WORKFLOW.md
+IDEA.md
+HERMES_SWARM_WORKFLOW.md

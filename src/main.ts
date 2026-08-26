@@ -1,16 +1,17 @@
 // src/main.ts - Hermedian Plugin Entry Point
-import type { Editor, WorkspaceLeaf } from 'obsidian';
-import { MarkdownView, Notice, Plugin, TFile, setIcon } from 'obsidian';
-
-import type { HermedianSettings } from './core/types/settings';
-import { DEFAULT_HERMEDIAN_SETTINGS } from './core/types/settings';
-import { VIEW_TYPE_HERMEDIAN } from './core/types/chat';
-import { HermedianSettingTab } from './features/settings/HermedianSettingTab';
-import { HermedianView } from './features/chat/HermedianView';
 import './providers'; // Register providers at import time
 
+import type { Editor, WorkspaceLeaf } from 'obsidian';
+import { MarkdownView, Notice, Plugin, setIcon,TFile } from 'obsidian';
+
+import { VIEW_TYPE_HERMEDIAN } from './core/types/chat';
+import type { HermedianSettings } from './core/types/settings';
+import { DEFAULT_HERMEDIAN_SETTINGS } from './core/types/settings';
+import { HermedianView } from './features/chat/HermedianView';
+import { HermedianSettingTab } from './features/settings/HermedianSettingTab';
+
 export default class HermedianPlugin extends Plugin {
-  settings!: HermedianSettings;
+  declare settings: HermedianSettings;
 
   async onload() {
     await this.loadSettings();
@@ -65,9 +66,10 @@ export default class HermedianPlugin extends Plugin {
     let leaf = workspace.getLeavesOfType(VIEW_TYPE_HERMEDIAN)[0];
 
     if (!leaf) {
-      leaf = workspace.getRightLeaf(false);
-      if (leaf) {
-        await leaf.setViewState({ type: VIEW_TYPE_HERMEDIAN, active: true });
+      const rightLeaf = workspace.getRightLeaf(false);
+      if (rightLeaf) {
+        await rightLeaf.setViewState({ type: VIEW_TYPE_HERMEDIAN, active: true });
+        leaf = rightLeaf;
       }
     }
 
