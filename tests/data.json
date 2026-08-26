@@ -1,0 +1,18 @@
+{
+  "hermes": {
+    "enabled": true,
+    "cliPath": "",
+    "model": "haiku",
+    "effortLevel": "medium",
+    "safeMode": "auto",
+    "environmentVariables": "",
+    "enableMcp": true,
+    "enableBangBash": false,
+    "customModels": ""
+  },
+  "sharedEnvironmentVariables": "",
+  "providerConfigs": {},
+  "theme": "system",
+  "fontSize": 14,
+  "maxWarmProcesses": 5
+}

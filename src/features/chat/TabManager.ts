@@ -1,6 +1,6 @@
 // src/features/chat/TabManager.ts
-import { Conversation } from '@/core/types/chat';
 import { ConversationRepository } from '@/core/bootstrap/ConversationRepository';
+import { Conversation } from '@/core/types/chat';
 
 export class TabManager {
   private tabs: Map<string, Conversation> = new Map();

@@ -2,10 +2,9 @@
 import type { WorkspaceLeaf } from 'obsidian';
 import { ItemView, Notice, setIcon } from 'obsidian';
 
-import { VIEW_TYPE_HERMEDIAN } from '../../core/types/chat';
-import type { HermesExecutionBackend } from '../../providers/hermes/execution/HermesExecutionBackend';
 import { ProviderRegistry } from '../../core/providers/ProviderRegistry';
-import type { Conversation, ConversationMeta } from '../../core/types/chat';
+import { VIEW_TYPE_HERMEDIAN } from '../../core/types/chat';
+import type { Conversation } from '../../core/types/chat';
 import type { InputLedgerEntry } from '../../core/bootstrap/ConversationRepository';
 import { ConversationRepository } from '../../core/bootstrap/ConversationRepository';
 import { TabManager } from './TabManager';
@@ -232,7 +231,7 @@ export class HermedianView extends ItemView {
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       // Simulate streaming response
-      let fullResponse = `I received your message: "${text}". This is a simulated response while we work on the full Hermes integration.`;
+      const fullResponse = `I received your message: "${text}". This is a simulated response while we work on the full Hermes integration.`;
       
       // Simulate streaming by updating every few characters
       for (let i = 0; i < fullResponse.length; i++) {
