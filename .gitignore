@@ -27,3 +27,8 @@ coverage/
 # Temporary files
 *.tmp
 *.bak
+
+# Internal agent docs (not for GitHub)
+ARCHITECTURE_COMPARISON.md
+AGENTIC_WORKFLOW.md
+IDEA.md
