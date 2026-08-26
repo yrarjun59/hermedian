@@ -115,13 +115,33 @@ export class HermesExecutionSession implements ProviderExecutionSession {
   }
 
   private spawnProcess(request: ProviderExecutionRequest, runId: string, abortController: AbortController): void {
-    const args = [
-      'chat',
-      '--json',
-      '--model', this.config.model,
-      '--effort', this.config.effortLevel,
-    ];
+    // Hermes CLI chat command syntax (from actual --help output):
+    // hermes chat [-z PROMPT] [-m MODEL] [--provider PROVIDER] [--reasoning LEVEL] [--in DIR]
+    const args: string[] = ['chat'];
 
+    // Model
+    if (this.config.model) {
+      args.push('-m', this.config.model);
+    }
+
+    // Provider (default to nvidia-nim for NVIDIA models)
+    const provider = this.getProviderForModel(this.config.model);
+    args.push('--provider', provider);
+
+    // Reasoning effort
+    if (this.config.effortLevel) {
+      args.push('--reasoning', this.config.effortLevel);
+    }
+
+    // Working directory
+    if (this.config.workingDirectory) {
+      args.push('--in', this.config.workingDirectory);
+    }
+
+    // Pass prompt via -z flag
+    args.push('-z', request.userMessage);
+
+    // Context files (if any)
     if (request.contextFiles?.length) {
       for (const file of request.contextFiles) {
         args.push('--context', file);
@@ -129,7 +149,6 @@ export class HermesExecutionSession implements ProviderExecutionSession {
     }
 
     console.log(`[Hermes] Spawning: ${this.cliPath} ${args.join(' ')}`);
-    console.log(`[Hermes] CWD: ${this.config.workingDirectory}`);
 
     this.process = spawn(this.cliPath, args, {
       cwd: this.config.workingDirectory,
@@ -145,7 +164,7 @@ export class HermesExecutionSession implements ProviderExecutionSession {
           const event = JSON.parse(line) as HermesEvent;
           this.handleHermesEvent(event, runId);
         } catch {
-          // Skip non-JSON lines
+          // Skip non-JSON lines (plain text output)
         }
       });
     }
@@ -174,18 +193,16 @@ export class HermesExecutionSession implements ProviderExecutionSession {
       this.ended = true;
     });
 
-    // Send user message
-    if (this.process.stdin) {
-      const payload = {
-        role: 'user',
-        content: request.userMessage,
-      };
-      this.process.stdin.write(JSON.stringify(payload) + '\n');
-    }
-
     abortController.signal.addEventListener('abort', () => {
       this.stop();
     });
+  }
+
+  private getProviderForModel(model: string): string {
+    if (model.startsWith('nvidia/')) return 'nvidia-nim';
+    if (model.startsWith('hermes-')) return 'nous';
+    if (model.startsWith('nemotron-')) return 'nous';
+    return 'nvidia-nim';
   }
 
   private handleHermesEvent(event: HermesEvent, runId: string): void {
