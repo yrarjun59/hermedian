@@ -9,13 +9,26 @@ import type { Conversation } from '../../core/types/chat';
 import { VIEW_TYPE_HERMEDIAN } from '../../core/types/chat';
 import { TabManager } from './TabManager';
 import { resolveCliPath } from '../../providers/hermes/settings';
-import { createModelSelector, ModelSelector } from './ModelSelector';
 import type { ProviderExecutionBackend, ProviderExecutionEvent, ProviderSessionConfig } from '../../core/execution/types';
 
 // Define ConversationWithLedger since it's not exported from core/types/chat
 interface ConversationWithLedger {
   conversation: Conversation;
   ledger: InputLedgerEntry[];
+}
+
+interface HermesProviderCache {
+  [provider: string]: {
+    fp: string;
+    at: number;
+    models: string[];
+  };
+}
+
+interface ProviderInfo {
+  id: string;
+  label: string;
+  models: string[];
 }
 
 export class HermedianView extends ItemView {
@@ -34,8 +47,9 @@ export class HermedianView extends ItemView {
   private hermesStatusEl: HTMLElement | null = null;
   private hermesAvailable = false;
   private resolvedCliPath: string | null = null;
-  private modelSelector: ModelSelector | null = null;
+  private providersCache: ProviderInfo[] = [];
   private isProcessing = false;
+  private sendBtn: HTMLButtonElement | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: any) {
     super(leaf);
@@ -71,14 +85,8 @@ export class HermedianView extends ItemView {
     // Load last conversation or create new one
     await this.loadOrCreateConversation();
 
-    // Initialize model selector
-    this.modelSelector = createModelSelector(
-      this.containerEl,
-      this.modelSelectEl!,
-      this.plugin,
-      this.resolvedCliPath
-    );
-    await this.modelSelector.loadModels();
+    // Load dynamic providers/models from Hermes cache
+    await this.loadProvidersFromCache();
 
     // Check Hermes availability and resolve CLI path
     await this.checkHermesAvailability();
@@ -142,17 +150,14 @@ export class HermedianView extends ItemView {
     // Right: Action buttons
     const actions = header.createDiv({ cls: 'hermedian-actions' });
 
-    // New conversation button
     const newBtn = actions.createEl('button', { cls: 'hermedian-btn-icon', title: 'New conversation' });
     setIcon(newBtn, 'plus');
     newBtn.addEventListener('click', () => this.createNewConversation());
 
-    // History sidebar button
     const historyBtn = actions.createEl('button', { cls: 'hermedian-btn-icon', title: 'History' });
     setIcon(historyBtn, 'clock');
     historyBtn.addEventListener('click', () => this.toggleHistorySidebar());
 
-    // Settings button
     const settingsBtn = actions.createEl('button', { cls: 'hermedian-btn-icon', title: 'Settings' });
     setIcon(settingsBtn, 'settings');
     settingsBtn.addEventListener('click', () => {
@@ -160,8 +165,91 @@ export class HermedianView extends ItemView {
     });
   }
 
+  private async loadProvidersFromCache(): Promise<void> {
+    try {
+      const { execFile } = await import('child_process');
+      const { promisify } = await import('util');
+      const execFileAsync = promisify(execFile);
+      
+      const { stdout: configDir } = await execFileAsync('bash', ['-c', 'echo ~/.hermes']);
+      const hermesDir = configDir.trim();
+      
+      const fs = await import('fs');
+      const path = await import('path');
+      const cachePath = path.join(hermesDir, 'provider_models_cache.json');
+      
+      if (!require('fs').existsSync(cachePath)) {
+        this.setDefaultProviders();
+        return;
+      }
+      
+      const cacheContent = require('fs').readFileSync(cachePath, 'utf-8');
+      const cache = JSON.parse(cacheContent) as Record<string, { models: string[] }>;
+      
+      this.providersCache = Object.entries(cache)
+        .filter(([, data]) => data.models && data.models.length > 0)
+        .map(([id, data]) => ({
+          id: id,
+          label: this.formatProviderLabel(id),
+          models: data.models
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+      
+      this.updateModelSelector();
+      this.updateProviderSelector();
+    } catch (error) {
+      console.warn('Failed to load providers from cache:', error);
+      this.setDefaultProviders();
+    }
+  }
+
+  private formatProviderLabel(id: string): string {
+    const labels: Record<string, string> = {
+      'nvidia': 'NVIDIA NIM',
+      'nous': 'Nous Research',
+      'opencode-free': 'OpenCode Free',
+      'xai': 'xAI Grok',
+      'google': 'Google Gemini',
+      'openai': 'OpenAI',
+      'anthropic': 'Anthropic',
+      'mistral': 'Mistral',
+      'meta': 'Meta',
+      'deepseek': 'DeepSeek',
+      'cohere': 'Cohere',
+      'groq': 'Groq',
+      'together': 'Together AI',
+    };
+    return labels[id] || id.toUpperCase();
+  }
+
+  private setDefaultProviders(): void {
+    this.providersCache = [
+      { id: 'nvidia-nim', label: 'NVIDIA NIM', models: [
+        'nvidia/llama-3.1-nemotron-70b-instruct',
+        'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+        'nvidia/nemotron-3-ultra-550b-a55b',
+        'nvidia/nemotron-3-super-120b-a12b',
+        'nvidia/llama-3.1-nemotron-51b-instruct',
+        'nvidia/nemotron-3-nano-30b-a3b',
+        'nvidia/nemotron-mini-4b-instruct',
+        'nvidia/llama-3.1-nemotron-ultra-253b-v1',
+      ]},
+      { id: 'nous', label: 'Nous Research', models: [
+        'hermes-3-70b',
+        'hermes-3-8b',
+        'nemotron-3-ultra',
+      ]},
+      { id: 'opencode-free', label: 'OpenCode Free', models: [
+        'nemotron-3-ultra-free',
+        'nemotron-3.5-lightning-free',
+      ]},
+    ];
+    this.updateModelSelector();
+    this.updateProviderSelector();
+  }
+
   private createInputArea(): void {
-    // Composer container - single row with all elements
+    // Composer container - matches Hermes Desktop exactly
     const composer = this.containerEl.createDiv({ cls: 'hermedian-composer' });
 
     // 1. Attach button (far left)
@@ -182,91 +270,105 @@ export class HermedianView extends ItemView {
       }
     });
 
-    // 3. Model selector (right of input)
+    // 3. Model selector
     this.modelSelectEl = composer.createEl('select', { cls: 'hermedian-model-select' });
 
-    this.modelSelectEl.addEventListener('change', async (e) => {
-      const target = e.target as HTMLSelectElement;
-      if (this.modelSelector) {
-        await this.modelSelector.handleModelChange(target.value);
-        if (target.value.startsWith('__')) {
-          target.value = this.plugin.settings?.hermes?.model || '';
-        }
-      }
-    });
-
-    // 4. Provider selector (dynamic)
+    // 4. Provider selector
     this.providerSelectEl = composer.createEl('select', { cls: 'hermedian-provider-select' });
-    this.populateProviderSelector();
 
-    this.providerSelectEl.addEventListener('change', async (e) => {
-      const target = e.target as HTMLSelectElement;
-      this.plugin.settings.hermes.provider = target.value;
-      await this.plugin.saveSettings();
-    });
-
-    // 5. Reasoning selector (dynamic)
+    // 5. Reasoning selector
     this.reasoningSelectEl = composer.createEl('select', { cls: 'hermedian-reasoning-select' });
-    this.populateReasoningSelector();
 
-    this.reasoningSelectEl.addEventListener('change', async (e) => {
-      const target = e.target as HTMLSelectElement;
-      this.plugin.settings.hermes.effortLevel = target.value as 'low' | 'medium' | 'high';
-      await this.plugin.saveSettings();
-    });
-
-    // 6. Send button (far right, white circular with up arrow)
+    // 6. Send/Stop button (far right)
     const sendBtn = composer.createEl('button', { 
       cls: 'hermedian-send-btn',
       attr: { title: 'Send' }
     });
     setIcon(sendBtn, 'chevron-up');
     sendBtn.addEventListener('click', () => this.sendMessage());
-
-    // Store reference for state changes
     this.sendBtn = sendBtn;
+
+    // Populate selectors
+    this.updateModelSelector();
+    this.updateProviderSelector();
+    this.populateReasoningSelector();
+
+    // Event listeners
+    this.modelSelectEl.addEventListener('change', () => {
+      this.plugin.settings.hermes.model = this.modelSelectEl!.value;
+      this.plugin.saveSettings();
+    });
+
+    this.providerSelectEl.addEventListener('change', (e) => {
+      this.plugin.settings.hermes.provider = (e.target as HTMLSelectElement).value;
+      this.plugin.saveSettings();
+      this.updateModelSelector();
+    });
+
+    this.reasoningSelectEl.addEventListener('change', (e) => {
+      this.plugin.settings.hermes.effortLevel = (e.target as HTMLSelectElement).value as 'low' | 'medium' | 'high';
+      this.plugin.saveSettings();
+    });
+
+    this.inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        this.sendMessage();
+      }
+    });
   }
 
-  private sendBtn: HTMLButtonElement | null = null;
+  private updateModelSelector(): void {
+    if (!this.modelSelectEl || this.providersCache.length === 0) return;
 
-  private populateProviderSelector(): void {
+    this.modelSelectEl.empty();
+    
+    // Find current provider's models
+    const provider = this.providersCache.find(p => p.id === this.providerSelectEl?.value);
+    
+    if (provider && provider.models.length > 0) {
+      for (const model of provider.models) {
+        const option = document.createElement('option');
+        option.value = model;
+        const shortName = model.split('/').pop() || model;
+        option.textContent = shortName.length > 50 ? shortName.substring(0, 50) + '...' : shortName;
+        this.modelSelectEl.appendChild(option);
+      }
+    } else {
+      // Fallback to all models
+      for (const provider of this.providersCache) {
+        for (const model of provider.models) {
+          const option = document.createElement('option');
+          option.value = model;
+          option.textContent = model.split('/').pop() || model;
+          this.modelSelectEl.appendChild(option);
+        }
+      }
+    }
+
+    // Restore saved model or use first
+    const savedModel = this.plugin.settings.hermes?.model;
+    if (savedModel) {
+      const exists = Array.from(this.modelSelectEl.options).some(opt => opt.value === savedModel);
+      this.modelSelectEl.value = exists ? savedModel : this.modelSelectEl.options[0]?.value || '';
+    }
+  }
+
+  private updateProviderSelector(): void {
     if (!this.providerSelectEl) return;
     this.providerSelectEl.empty();
 
-    // Get providers from Hermes cache
-    const providers = this.getAvailableProviders();
-    
-    for (const provider of providers) {
+    for (const provider of this.providersCache) {
       const option = document.createElement('option');
       option.value = provider.id;
       option.textContent = provider.label;
       this.providerSelectEl.appendChild(option);
     }
 
-    // Default to nous (since it's always available)
-    const savedProvider = this.plugin.settings.hermes?.provider || 'nous';
-    this.providerSelectEl.value = savedProvider;
-  }
-
-  private getAvailableProviders(): { id: string; label: string }[] {
-    // Read from cache or use defaults
-    try {
-      const { execFile } = require('child_process');
-      const { promisify } = require('util');
-      const execFileAsync = require('util').promisify(execFile);
-      const { stdout: configDir } = execFileAsync('bash', ['-c', 'echo ~/.hermes']);
-      // This is sync-ish, so we'll use defaults for now
-    } catch {}
-
-    return [
-      { id: 'nvidia-nim', label: 'NVIDIA NIM' },
-      { id: 'nous', label: 'Nous Research' },
-      { id: 'opencode-free', label: 'OpenCode Free' },
-      { id: 'xai', label: 'xAI Grok' },
-      { id: 'google', label: 'Google Gemini' },
-      { id: 'openai', label: 'OpenAI' },
-      { id: 'anthropic', label: 'Anthropic' },
-    ];
+    // Default to 'nous' if available (always has models)
+    const savedProvider = this.plugin.settings.hermes?.provider;
+    const hasNous = this.providersCache.some(p => p.id === 'nous');
+    this.providerSelectEl.value = savedProvider || (this.providersCache.some(p => p.id === 'nous') ? 'nous' : this.providersCache[0]?.id || '');
   }
 
   private populateReasoningSelector(): void {
@@ -288,11 +390,10 @@ export class HermedianView extends ItemView {
       const option = document.createElement('option');
       option.value = level.value;
       option.textContent = level.label;
-      this.reasoningSelectEl!.appendChild(option);
+      this.reasoningSelectEl.appendChild(option);
     }
 
-    const savedReasoning = this.plugin.settings.hermes?.effortLevel || 'medium';
-    this.reasoningSelectEl!.value = savedReasoning;
+    this.reasoningSelectEl.value = this.plugin.settings.hermes?.effortLevel || 'medium';
   }
 
   private openFilePicker(): void {
@@ -402,8 +503,8 @@ export class HermedianView extends ItemView {
     this.updateSendButtonState();
 
     this.addMessage('user', text);
-    this.inputEl.value = '';
-    this.inputEl.disabled = true;
+    this.inputEl!.value = '';
+    this.inputEl!.disabled = true;
 
     const assistantMsg = this.addMessage('assistant', '');
 
@@ -512,8 +613,8 @@ export class HermedianView extends ItemView {
     } finally {
       this.isProcessing = false;
       this.updateSendButtonState();
-      this.inputEl.disabled = false;
-      this.inputEl.focus();
+      this.inputEl!.disabled = false;
+      this.inputEl!.focus();
     }
   }
 
