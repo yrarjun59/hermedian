@@ -1,6 +1,6 @@
 // src/features/chat/HermedianView.ts
 // Hermedian — Obsidian plugin embedding Hermes Agent
-// Layout: [attach] [input] [model selector] [send/stop]
+// Layout matches Hermes Agent desktop: [attach] [input] [model ▼] [reasoning ▼] [⬆️]
 import type { WorkspaceLeaf } from 'obsidian';
 import { ItemView, Notice, setIcon } from 'obsidian';
 
@@ -14,7 +14,9 @@ export class HermedianView extends ItemView {
   private inputEl: HTMLTextAreaElement | null = null;
   private sendBtn: HTMLButtonElement | null = null;
   private modelBtn: HTMLButtonElement | null = null;
+  private reasoningBtn: HTMLButtonElement | null = null;
   private modelPopup: HTMLElement | null = null;
+  private reasoningPopup: HTMLElement | null = null;
   private repo: ConversationRepository;
   private cliPath: string;
   private isProcessing = false;
@@ -27,6 +29,17 @@ export class HermedianView extends ItemView {
   private selectedModel = 'nvidia/llama-3.1-nemotron-70b-instruct';
   private selectedProvider = 'nvidia-nim';
   private selectedReasoning = 'medium';
+
+  // Reasoning levels (matching Hermes Agent)
+  private readonly reasoningLevels = [
+    { value: 'none', label: 'None' },
+    { value: 'minimal', label: 'Minimal' },
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
+    { value: 'xhigh', label: 'X-High' },
+    { value: 'max', label: 'Max' },
+  ];
 
   constructor(leaf: WorkspaceLeaf, plugin: any) {
     super(leaf);
@@ -76,7 +89,7 @@ export class HermedianView extends ItemView {
       || process.cwd();
   }
 
-  // ===== MODEL CACHE =====
+  // ===== MODEL CACHE (from ~/.hermes/provider_models_cache.json) =====
   private async loadModelCache(): Promise<void> {
     try {
       const nodeRequire = (window as any).require as (id: string) => any;
@@ -148,7 +161,15 @@ export class HermedianView extends ItemView {
       this.toggleModelPopup();
     });
 
-    // 4. Send/Stop button (right)
+    // 4. Reasoning selector button
+    this.reasoningBtn = composer.createEl('button', { cls: 'hermedian-reasoning-btn', title: 'Reasoning effort' });
+    this.renderReasoningLabel();
+    this.reasoningBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleReasoningPopup();
+    });
+
+    // 5. Send/Stop button (right)
     this.sendBtn = composer.createEl('button', { cls: 'hermedian-send-btn', attr: { title: 'Send' } });
     setIcon(this.sendBtn, 'chevron-up');
     this.sendBtn.addEventListener('click', () => {
@@ -156,8 +177,11 @@ export class HermedianView extends ItemView {
       else this.send();
     });
 
-    // Close popup on outside click
-    document.addEventListener('click', () => this.closeModelPopup());
+    // Close popups on outside click
+    document.addEventListener('click', () => {
+      this.closeModelPopup();
+      this.closeReasoningPopup();
+    });
   }
 
   private renderModelLabel(): void {
@@ -171,9 +195,19 @@ export class HermedianView extends ItemView {
     setIcon(chevron, 'chevron-down');
   }
 
+  private renderReasoningLabel(): void {
+    if (!this.reasoningBtn) return;
+    this.reasoningBtn.empty();
+    const level = this.reasoningLevels.find(l => l.value === this.selectedReasoning);
+    this.reasoningBtn.createSpan({ cls: 'hermedian-reasoning-name', text: level?.label || this.selectedReasoning });
+    const chevron = this.reasoningBtn.createSpan({ cls: 'hermedian-reasoning-chevron' });
+    setIcon(chevron, 'chevron-down');
+  }
+
   // ===== MODEL POPUP (Hermes Agent style) =====
   private toggleModelPopup(): void {
     if (this.modelPopup) { this.closeModelPopup(); return; }
+    this.closeReasoningPopup();
     if (!this.modelBtn) return;
 
     const rect = this.modelBtn.getBoundingClientRect();
@@ -224,10 +258,53 @@ export class HermedianView extends ItemView {
     }
   }
 
+  // ===== REASONING POPUP =====
+  private toggleReasoningPopup(): void {
+    if ( this.reasoningPopup) { this.closeReasoningPopup(); return; }
+    this.closeModelPopup();
+    if (!this.reasoningBtn) return;
+
+    const rect = this.reasoningBtn.getBoundingClientRect();
+    const popup = document.createElement('div');
+    popup.className = 'hermedian-reasoning-popup';
+    popup.style.position = 'fixed';
+    popup.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
+    popup.style.left = rect.left + 'px';
+    popup.style.minWidth = '140px';
+    popup.style.zIndex = '1000';
+
+    for (const level of this.reasoningLevels) {
+      const item = popup.createDiv({
+        cls: 'hermedian-reasoning-item' + (level.value === this.selectedReasoning ? ' selected' : '')
+      });
+      item.createSpan({ cls: 'hermedian-reasoning-item-label', text: level.label });
+      const check = item.createSpan({ cls: 'hermedian-reasoning-item-check' });
+      setIcon(check, 'check');
+
+      item.addEventListener('click', () => {
+        this.selectedReasoning = level.value;
+        this.renderReasoningLabel();
+        this.closeReasoningPopup();
+        this.saveModelSelection();
+      });
+    }
+
+    document.body.appendChild(popup);
+    this.reasoningPopup = popup;
+  }
+
+  private closeReasoningPopup(): void {
+    if (this.reasoningPopup) {
+      this.reasoningPopup.remove();
+      this.reasoningPopup = null;
+    }
+  }
+
   private saveModelSelection(): void {
     if (!this.plugin.settings) return;
     this.plugin.settings.hermes.model = this.selectedModel;
     this.plugin.settings.hermes.provider = this.selectedProvider;
+    this.plugin.settings.hermes.effortLevel = this.selectedReasoning as any;
     this.plugin.saveSettings();
   }
 
@@ -293,7 +370,7 @@ export class HermedianView extends ItemView {
     const msg = this.messagesEl.createDiv({ cls: `hermedian-message ${role}` });
     const content = msg.createDiv({ cls: 'hermedian-message-content' });
     if (role === 'assistant' && !text) {
-      // Loading indicator
+      // Loading indicator (three bouncing dots)
       const loader = content.createDiv({ cls: 'hermedian-loading' });
       loader.createSpan({ cls: 'hermedian-loading-dot' });
       loader.createSpan({ cls: 'hermedian-loading-dot' });
@@ -443,5 +520,6 @@ export class HermedianView extends ItemView {
   async onunload(): Promise<void> {
     if (this.process && !this.process.killed) this.process.kill('SIGTERM');
     this.closeModelPopup();
+    this.closeReasoningPopup();
   }
 }
