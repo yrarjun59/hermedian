@@ -106,21 +106,29 @@ export class ConversationRepository {
    * List all conversations (metadata only).
    */
   async list(): Promise<ConversationMeta[]> {
-    const items = await this.adapter.list(this.basePath);
+    let items: unknown[];
+    try {
+      items = await this.adapter.list(this.basePath);
+    } catch {
+      return [];
+    }
+
+    if (!Array.isArray(items)) return [];
+
     const metas: ConversationMeta[] = [];
 
     for (const item of items) {
-      const path = (item as any).path ?? item;
-      if (typeof path === 'string' && path.endsWith('.json') && !path.endsWith('.ledger.json')) {
-        try {
-          const content = await this.adapter.read(path);
-          const conversation = JSON.parse(content) as Conversation;
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const { messages, ...meta } = conversation;
-          metas.push(meta as ConversationMeta);
-        } catch {
-          // Skip invalid files
-        }
+      // Handle both TFile objects (Obsidian) and plain strings
+      const path = typeof item === 'string' ? item : (item as any).path ?? (item as any).name;
+      if (typeof path !== 'string' || !path.endsWith('.json') || path.endsWith('.ledger.json')) continue;
+      
+      try {
+        const content = await this.adapter.read(path);
+        const conversation = JSON.parse(content) as Conversation;
+        const { messages: _messages, ...meta } = conversation;
+        metas.push(meta as ConversationMeta);
+      } catch {
+        // Skip invalid files
       }
     }
 

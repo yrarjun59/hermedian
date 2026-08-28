@@ -5,8 +5,9 @@ import { ItemView, Notice, setIcon } from 'obsidian';
 
 import { ConversationRepository } from '../../core/bootstrap/ConversationRepository';
 import { resolveCliPath, getHermesProviderSettings } from '../../providers/hermes/settings';
-import { ProviderRegistry } from '../../core/providers/ProviderRegistry';
 import { VIEW_TYPE_HERMEDIAN } from '../../core/types/chat';
+
+declare const NodeRequire: { resolve(id: string): string };
 
 export class HermedianView extends ItemView {
   private plugin: any;
@@ -16,7 +17,7 @@ export class HermedianView extends ItemView {
   private repo: ConversationRepository;
   private cliPath: string;
   private isProcessing = false;
-  private process: import('child_process').ChildProcess | null = null;
+  private process: any = null;
   private currentConversationId: string | null = null;
   private currentFolder = '';
 
@@ -78,14 +79,6 @@ export class HermedianView extends ItemView {
 
     left.createSpan({ cls: 'hermedian-title', text: 'Hermedian' });
 
-    // Folder context indicator
-    const folder = left.createSpan({ cls: 'hermedian-folder-chip' });
-    folder.textContent = `📁 ${this.currentFolder}`;
-    folder.title = this.currentFolder;
-    folder.addEventListener('click', () => {
-      new Notice(`Working directory: ${this.currentFolder}`);
-    });
-
     // Actions
     const actions = header.createDiv({ cls: 'hermedian-actions' });
 
@@ -103,16 +96,11 @@ export class HermedianView extends ItemView {
 
     const welcome = this.messagesEl.createDiv({ cls: 'hermedian-message assistant' });
     welcome.createDiv({ cls: 'hermedian-message-content' })
-      .createEl('p', { text: `Hello! I'm Hermes Agent. I'm working in: ${this.currentFolder}\nAsk me anything about this vault.` });
+      .createEl('p', { text: 'Hello! I\'m Hermes Agent. Ask me anything about this vault.' });
   }
 
   private buildComposer(): void {
     const composer = this.containerEl.createDiv({ cls: 'hermedian-composer' });
-
-    // + Add context button (like Hermes Agent)
-    const addBtn = composer.createEl('button', { cls: 'hermedian-attach-btn', title: 'Add context files' });
-    setIcon(addBtn, 'plus');
-    addBtn.addEventListener('click', () => this.addContext());
 
     // Input
     this.inputEl = composer.createEl('textarea', {
@@ -146,19 +134,24 @@ export class HermedianView extends ItemView {
   }
 
   private async loadMostRecent(): Promise<void> {
-    const convos = await this.repo.list();
-    if (convos.length === 0) {
-      this.currentConversationId = crypto.randomUUID();
-      return;
-    }
-    const mostRecent = [...convos].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
-    this.currentConversationId = mostRecent.id;
-    const loaded = await this.repo.load(mostRecent.id);
-    if (loaded && this.messagesEl) {
-      this.messagesEl.empty();
-      for (const msg of loaded.conversation.messages) {
-        this.addMessage(msg.role as 'user' | 'assistant', msg.content.map((c: any) => c.text).join(''));
+    try {
+      const convos = await this.repo.list();
+      if (convos.length === 0) {
+        this.currentConversationId = crypto.randomUUID();
+        return;
       }
+      const mostRecent = [...convos].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
+      this.currentConversationId = mostRecent.id;
+      const loaded = await this.repo.load(mostRecent.id);
+      if (loaded && this.messagesEl) {
+        this.messagesEl.empty();
+        for (const msg of loaded.conversation.messages) {
+          this.addMessage(msg.role as 'user' | 'assistant', msg.content.map((c: any) => c.text).join(''));
+        }
+      }
+    } catch (e) {
+      console.warn('loadMostRecent failed:', e);
+      this.currentConversationId = crypto.randomUUID();
     }
   }
 
@@ -173,20 +166,25 @@ export class HermedianView extends ItemView {
   }
 
   private async showHistory(): Promise<void> {
-    const convos = await this.repo.list();
+    let convos: any[] = [];
+    try {
+      convos = await this.repo.list();
+    } catch (e) {
+      console.warn('showHistory failed:', e);
+      new Notice('Could not load history');
+      return;
+    }
+
     if (convos.length === 0) {
       new Notice('No conversations yet');
       return;
     }
-    const items = convos.map(c => c.title || c.id.substring(0, 8));
-    new Notice(`History (${convos.length} conversations) — click a title to load.`);
-    // Simple menu via Modal
+
     const { Modal } = await import('obsidian');
     const modal = new Modal(this.app);
     modal.titleEl.setText('Conversation History');
-    let last = '';
+
     for (const c of convos) {
-      last = c.id;
       const row = modal.contentEl.createDiv({ cls: 'hermedian-history-modal-item' });
       row.textContent = c.title || c.id.substring(0, 8);
       row.addEventListener('click', async () => {
@@ -202,10 +200,6 @@ export class HermedianView extends ItemView {
       });
     }
     modal.open();
-  }
-
-  private addContext(): void {
-    new Notice('Context: vault is already the working directory. Files within it are accessible.');
   }
 
   private addMessage(role: 'user' | 'assistant', text: string): HTMLElement {
@@ -227,7 +221,6 @@ export class HermedianView extends ItemView {
     const text = this.inputEl.value.trim();
     if (!text) return;
 
-    // Save user message to conversation
     if (this.currentConversationId) {
       await this.appendToConversation('user', text);
     }
@@ -245,7 +238,9 @@ export class HermedianView extends ItemView {
     const provider = settings.provider || this.providerFromModel(model);
     const reasoning = settings.effortLevel || 'medium';
 
-    const { spawn } = await import('child_process');
+    // Use Electron's require to access child_process (Obsidian desktop)
+    const nodeRequire = (window as any).require as (id: string) => any;
+    const { spawn } = nodeRequire('child_process');
     const args = ['chat', '-q', text, '-m', model, '--provider', provider, '--reasoning', reasoning, '--in', this.currentFolder];
 
     console.log(`[Hermedian] ${this.cliPath} ${args.join(' ')}`);
@@ -253,13 +248,12 @@ export class HermedianView extends ItemView {
     let buffer = '';
     this.process = spawn(this.cliPath, args, { cwd: this.currentFolder });
 
-    const { createInterface } = await import('readline');
+    const { createInterface } = nodeRequire('readline');
 
     if (this.process.stdout) {
       const rl = createInterface({ input: this.process.stdout });
       rl.on('line', (line: string) => {
         buffer += line + '\n';
-        // Parse TUI box: extract text between ╭─ ⚕ Hermes and ╰─...╯
         const m = buffer.match(/╭─ ⚕ Hermes[\s\S]*?╮\n([\s\S]*?)\n╰─/);
         if (m) {
           this.updateMessage(assistantEl, m[1].trim());
@@ -273,16 +267,14 @@ export class HermedianView extends ItemView {
       rlErr.on('line', (line: string) => console.error('[hermes stderr]:', line));
     }
 
-    this.process.on('close', async (code) => {
+    this.process.on('close', async (code: number) => {
       if (code === 0 && buffer.trim()) {
-        // Fallback: emit remaining buffer
         const m = buffer.match(/╭─ ⚕ Hermes[\s\S]*?╮\n([\s\S]*?)\n╰─/);
         const out = m ? m[1].trim() : buffer.trim();
         if (out) this.updateMessage(assistantEl, out);
       } else if (code !== 0 && code !== null) {
         this.updateMessage(assistantEl, `Error: process exited (${code}). Check console for details.`);
       }
-      // Save assistant message
       const finalText = assistantEl.textContent || '';
       if (finalText && this.currentConversationId) {
         await this.appendToConversation('assistant', finalText);
@@ -294,7 +286,7 @@ export class HermedianView extends ItemView {
       }
     });
 
-    this.process.on('error', (err) => {
+    this.process.on('error', (err: Error) => {
       this.updateMessage(assistantEl, `Error: ${err.message}`);
       this.setProcessing(false);
       if (this.inputEl) {
