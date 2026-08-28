@@ -16,6 +16,7 @@ export interface HermesProviderSettings {
   enabled: boolean;
   cliPath: string;
   model: string;
+  provider: string;
   effortLevel: 'low' | 'medium' | 'high';
   safeMode: 'auto' | 'ask' | 'yolo';
   environmentVariables: string;
@@ -29,6 +30,7 @@ export const DEFAULT_HERMEDIAN_SETTINGS: HermedianSettings = {
     enabled: true,
     cliPath: '',
     model: 'nvidia/llama-3.1-nemotron-70b-instruct',
+    provider: 'nvidia-nim',
     effortLevel: 'medium',
     safeMode: 'auto',
     environmentVariables: '',
@@ -40,6 +42,7 @@ export const DEFAULT_HERMEDIAN_SETTINGS: HermedianSettings = {
   providerConfigs: {
     hermes: {
       model: 'nvidia/llama-3.1-nemotron-70b-instruct',
+      provider: 'nvidia-nim',
       effortLevel: 'medium',
       safeMode: 'auto',
     },

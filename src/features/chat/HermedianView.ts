@@ -1,44 +1,30 @@
 // src/features/chat/HermedianView.ts
-import { WorkspaceLeaf } from 'obsidian';
+// Clean minimal chatbar: vault as context + history + send/stop
+import type { WorkspaceLeaf } from 'obsidian';
 import { ItemView, Notice, setIcon } from 'obsidian';
 
-import type { InputLedgerEntry } from '../../core/bootstrap/ConversationRepository';
 import { ConversationRepository } from '../../core/bootstrap/ConversationRepository';
-import type { ProviderExecutionEvent,ProviderExecutionSession } from '../../core/execution/types';
+import { resolveCliPath, getHermesProviderSettings } from '../../providers/hermes/settings';
 import { ProviderRegistry } from '../../core/providers/ProviderRegistry';
-import type { Conversation } from '../../core/types/chat';
 import { VIEW_TYPE_HERMEDIAN } from '../../core/types/chat';
-import { resolveCliPath } from '../../providers/hermes/settings';
-import { ModelSelectorPopup } from './ModelSelectorPopup';
-import { TabManager } from './TabManager';
 
 export class HermedianView extends ItemView {
   private plugin: any;
-  private messageContainer: HTMLElement | null = null;
+  private messagesEl: HTMLElement | null = null;
   private inputEl: HTMLTextAreaElement | null = null;
-  private conversationRepo: ConversationRepository;
-  private tabManager: TabManager;
-  private providerRegistry: typeof ProviderRegistry;
-  private currentConversationId: string | null = null;
-  private historySidebarEl: HTMLElement | null = null;
-  private isHistorySidebarOpen: boolean = false;
-  private hermesStatusEl: HTMLElement | null = null;
-  private hermesAvailable = false;
-  private resolvedCliPath: string | null = null;
-  private isProcessing = false;
   private sendBtn: HTMLButtonElement | null = null;
-  private modelSelector: ModelSelectorPopup | null = null;
-  private currentSession: ProviderExecutionSession | null = null; // for stop/cancel support
-
-  // P0: auto-grow limits
-  private static INPUT_MAX_HEIGHT = 160;
+  private repo: ConversationRepository;
+  private cliPath: string;
+  private isProcessing = false;
+  private process: import('child_process').ChildProcess | null = null;
+  private currentConversationId: string | null = null;
+  private currentFolder = '';
 
   constructor(leaf: WorkspaceLeaf, plugin: any) {
     super(leaf);
     this.plugin = plugin;
-    this.conversationRepo = new ConversationRepository(plugin.app.vault.adapter);
-    this.providerRegistry = ProviderRegistry;
-    this.tabManager = new TabManager(this.conversationRepo);
+    this.repo = new ConversationRepository(plugin.app.vault.adapter);
+    this.cliPath = plugin.settings?.hermes?.cliPath || '';
   }
 
   getViewType(): string {
@@ -55,491 +41,342 @@ export class HermedianView extends ItemView {
 
   async onload(): Promise<void> {
     console.log('Hermedian view loaded');
-    await this.conversationRepo.initialize();
     this.containerEl.empty();
     this.containerEl.addClass('hermedian-view');
 
-    this.createHeader();
-    this.createMessageArea();
-    this.createInputArea();
+    await this.repo.initialize();
 
-    await this.loadOrCreateConversation();
-    await this.checkHermesAvailability();
-  }
-
-  async onunload(): Promise<void> {
-    this.modelSelector?.destroy();
-    console.log('Hermedian view unloaded');
-  }
-
-  private async checkHermesAvailability(): Promise<void> {
+    // Resolve CLI path
     try {
-      const cliPath = await resolveCliPath(this.plugin.settings.hermes.cliPath);
-      this.resolvedCliPath = cliPath;
-      const { execFile } = await import('child_process');
-      const { promisify } = await import('util');
-      const execFileAsync = promisify(execFile);
-      try {
-        const { stdout } = await execFileAsync(cliPath, ['--version'], { timeout: 5000 });
-        this.hermesAvailable = true;
-        this.updateHermesStatus(`Connected • ${stdout.trim()}`, 'connected');
-      } catch {
-        this.hermesAvailable = false;
-        this.updateHermesStatus('Not installed • Click to install', 'disconnected');
-      }
+      this.cliPath = await resolveCliPath(this.plugin.settings.hermes.cliPath);
     } catch {
-      this.hermesAvailable = false;
-      this.updateHermesStatus('Not installed • Click to install', 'disconnected');
+      // No CLI — will show error on first send
     }
+
+    // The whole vault is the working directory (context)
+    this.currentFolder = this.getVaultPath();
+
+    // Build UI
+    this.buildHeader();
+    this.buildMessages();
+    this.buildComposer();
+
+    // Load most recent conversation (history)
+    await this.loadMostRecent();
   }
 
-  private updateHermesStatus(text: string, status: 'connected' | 'disconnected' | 'connecting'): void {
-    if (!this.hermesStatusEl) return;
-    this.hermesStatusEl.empty();
-    this.hermesStatusEl.createSpan({
-      cls: `hermedian-status ${status}`,
-      text
-    });
-    this.hermesStatusEl.onclick = () => {
-      if (this.hermesStatusEl?.classList.contains('disconnected')) {
-        this.openHermesInstallGuide();
-      }
-    };
-    this.hermesStatusEl.style.cursor = this.hermesAvailable ? 'default' : 'pointer';
+  private getVaultPath(): string {
+    return (this.app.vault.adapter as any).getBasePath?.()
+      || (this.app.vault.adapter as any).basePath
+      || (this.app.vault as any).getBasePath?.()
+      || process.cwd();
   }
 
-  private openHermesInstallGuide(): void {
-    new Notice('Opening Hermes Agent install guide...');
-    window.open('https://github.com/hermes-agent/hermes-agent#installation', '_blank');
-  }
-
-  private createHeader(): void {
+  private buildHeader(): void {
     const header = this.containerEl.createDiv({ cls: 'hermedian-header' });
-
     const left = header.createDiv({ cls: 'hermedian-header-left' });
-    left.createSpan({ cls: 'hermedian-title', text: 'Hermedian' });
-    this.hermesStatusEl = left.createSpan({ cls: 'hermedian-status disconnected', text: 'Checking...' });
 
+    left.createSpan({ cls: 'hermedian-title', text: 'Hermedian' });
+
+    // Folder context indicator
+    const folder = left.createSpan({ cls: 'hermedian-folder-chip' });
+    folder.textContent = `📁 ${this.currentFolder}`;
+    folder.title = this.currentFolder;
+    folder.addEventListener('click', () => {
+      new Notice(`Working directory: ${this.currentFolder}`);
+    });
+
+    // Actions
     const actions = header.createDiv({ cls: 'hermedian-actions' });
 
     const newBtn = actions.createEl('button', { cls: 'hermedian-btn-icon', title: 'New conversation' });
     setIcon(newBtn, 'plus');
-    newBtn.addEventListener('click', () => this.createNewConversation());
+    newBtn.addEventListener('click', () => this.newConversation());
 
     const historyBtn = actions.createEl('button', { cls: 'hermedian-btn-icon', title: 'History' });
     setIcon(historyBtn, 'clock');
-    historyBtn.addEventListener('click', () => this.toggleHistorySidebar());
-
-    const settingsBtn = actions.createEl('button', { cls: 'hermedian-btn-icon', title: 'Settings' });
-    setIcon(settingsBtn, 'settings');
-    settingsBtn.addEventListener('click', () => {
-      (this.app as unknown as { setting?: { openTabById?: (id: string) => void } }).setting?.openTabById?.('hermedian');
-    });
+    historyBtn.addEventListener('click', () => this.showHistory());
   }
 
-  private createInputArea(): void {
-    // Composer container - matches Hermes Desktop: [+] [textarea] [model pill] [send]
+  private buildMessages(): void {
+    this.messagesEl = this.containerEl.createDiv({ cls: 'hermedian-messages' });
+
+    const welcome = this.messagesEl.createDiv({ cls: 'hermedian-message assistant' });
+    welcome.createDiv({ cls: 'hermedian-message-content' })
+      .createEl('p', { text: `Hello! I'm Hermes Agent. I'm working in: ${this.currentFolder}\nAsk me anything about this vault.` });
+  }
+
+  private buildComposer(): void {
     const composer = this.containerEl.createDiv({ cls: 'hermedian-composer' });
 
-    // Attach button (far left)
-    const attachBtn = composer.createEl('button', { cls: 'hermedian-attach-btn', title: 'Attach files' });
-    setIcon(attachBtn, 'plus');
-    attachBtn.addEventListener('click', () => this.openFilePicker());
+    // + Add context button (like Hermes Agent)
+    const addBtn = composer.createEl('button', { cls: 'hermedian-attach-btn', title: 'Add context files' });
+    setIcon(addBtn, 'plus');
+    addBtn.addEventListener('click', () => this.addContext());
 
-    // Auto-growing textarea (center, flex)
+    // Input
     this.inputEl = composer.createEl('textarea', {
       cls: 'hermedian-input',
-      attr: { placeholder: 'Ask Hermes... (Shift+Enter for newline)', rows: '1' }
+      attr: { placeholder: 'Ask Hermes about this vault... (Shift+Enter for newline)' }
+    });
+
+    // Auto-resize
+    this.inputEl.addEventListener('input', () => {
+      this.inputEl!.style.height = 'auto';
+      this.inputEl!.style.height = Math.min(this.inputEl!.scrollHeight, 150) + 'px';
     });
 
     this.inputEl.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        this.sendMessage();
+        this.send();
       }
     });
 
-    // P0: auto-grow with internal scroll cap
-    this.inputEl.addEventListener('input', () => this.autoGrowInput());
-
-    // Model selector popup pill (replaces model/provider/reasoning <select>s)
-    this.modelSelector = new ModelSelectorPopup(composer, {
-      onModelChange: (modelId) => {
-        this.plugin.settings.hermes.model = modelId;
-        this.plugin.saveSettings();
-      },
-      onOptionsChange: (state) => {
-        this.plugin.settings.hermes.model = state.selectedModel;
-        this.plugin.settings.hermes.effortLevel = state.effortLevel as any;
-        this.plugin.settings.hermes.thinkingEnabled = state.thinkingEnabled;
-        this.plugin.saveSettings();
-      },
-      onRefresh: async () => {
-        await this.refreshHermesModels();
-      },
-      onEdit: () => {
-        (this.app as any)?.setting?.openTabById?.('hermedian');
-      },
-    }, this.plugin);
-
-    this.modelSelector.initFromSettings();
-    this.modelSelector.renderButton(composer);
-    // Load models dynamically (async, updates list when done)
-    void this.modelSelector.loadModels();
-
-    // Send/Stop button (far right)
-    this.sendBtn = composer.createEl('button', {
-      cls: 'hermedian-send-btn',
-      attr: { title: 'Send' }
-    });
-    setIcon(this.sendBtn, 'arrow-up');
+    // Send/Stop button
+    this.sendBtn = composer.createEl('button', { cls: 'hermedian-send-btn', attr: { title: 'Send' } });
+    setIcon(this.sendBtn, 'chevron-up');
     this.sendBtn.addEventListener('click', () => {
       if (this.isProcessing) {
-        this.stopCurrentRun();
+        this.stop();
       } else {
-        this.sendMessage();
+        this.send();
       }
     });
-
-    this.updateSendButtonState();
   }
 
-  /* P0: Auto-growing textarea — grows with content up to max, then scrolls internally */
-  private autoGrowInput(): void {
-    if (!this.inputEl) return;
-    const el = this.inputEl;
-    el.style.height = 'auto';
-    const newHeight = Math.min(el.scrollHeight, HermedianView.INPUT_MAX_HEIGHT);
-    el.style.height = `${newHeight}px`;
-    el.style.overflowY = el.scrollHeight > HermedianView.INPUT_MAX_HEIGHT ? 'auto' : 'hidden';
-  }
-
-  private resetInputHeight(): void {
-    if (!this.inputEl) return;
-    this.inputEl.style.height = 'auto';
-    this.inputEl.style.overflowY = 'hidden';
-  }
-
-  private async refreshHermesModels(): Promise<void> {
-    try {
-      const { execFile } = await import('child_process');
-      const { promisify } = await import('util');
-      const execFileAsync = promisify(execFile);
-      const cliPath = this.resolvedCliPath || 'hermes';
-      await execFileAsync(cliPath, ['model', 'list', '--refresh'], { timeout: 30000 });
-      new Notice('Models refreshed from Hermes');
-    } catch (error) {
-      new Notice('Model refresh failed: ' + (error instanceof Error ? error.message : 'Unknown'));
-    }
-  }
-
-  private openFilePicker(): void {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.multiple = true;
-    input.accept = '*/*';
-    input.style.display = 'none';
-    input.addEventListener('change', async (e) => {
-      const target = e.target as HTMLInputElement;
-      if (target.files && target.files.length > 0) {
-        const files = Array.from(target.files);
-        new Notice(`Attached ${files.length} file(s) - context attachment coming soon`);
-      }
-    });
-    document.body.appendChild(input);
-    input.click();
-    document.body.removeChild(input);
-  }
-
-  private createHistorySidebar(): void {
-    if (this.historySidebarEl) return;
-    this.historySidebarEl = this.containerEl.createDiv({ cls: 'hermedian-history-sidebar' });
-    this.historySidebarEl.createDiv({ cls: 'hermedian-history-sidebar-header', text: 'Conversation History' });
-    const historyList = this.historySidebarEl.createDiv({ cls: 'hermedian-history-list' });
-    this.historySidebarEl.appendChild(historyList);
-    this.loadConversationHistory(historyList);
-  }
-
-  private async loadConversationHistory(container: HTMLElement): Promise<void> {
-    container.empty();
-    const conversations = await this.conversationRepo.list();
-    for (const meta of conversations) {
-      const item = container.createDiv({ cls: 'hermedian-history-item' });
-      item.createSpan({ text: meta.title || `Conversation ${meta.id.substring(0, 8)}` });
-      item.addEventListener('click', () => this.loadConversation(meta.id));
-      if (meta.id === this.currentConversationId) {
-        item.addClass('hermedian-history-item-active');
-      }
-    }
-  }
-
-  private toggleHistorySidebar(): void {
-    if (!this.historySidebarEl) {
-      this.createHistorySidebar();
-      this.isHistorySidebarOpen = true;
-      (this.historySidebarEl as HTMLElement | null)?.classList.add('hermedian-history-sidebar-open');
+  private async loadMostRecent(): Promise<void> {
+    const convos = await this.repo.list();
+    if (convos.length === 0) {
+      this.currentConversationId = crypto.randomUUID();
       return;
     }
-    this.isHistorySidebarOpen = !this.isHistorySidebarOpen;
-    this.historySidebarEl.toggleClass('hermedian-history-sidebar-open', this.isHistorySidebarOpen);
-    if (this.isHistorySidebarOpen) {
-      const listEl = this.historySidebarEl.querySelector('.hermedian-history-list') as HTMLElement;
-      this.loadConversationHistory(listEl);
-    }
-  }
-
-  private createMessageArea(): void {
-    this.messageContainer = this.containerEl.createDiv({ cls: 'hermedian-messages' });
-    const welcome = this.messageContainer.createDiv({ cls: 'hermedian-message assistant' });
-    const welcomeContent = welcome.createDiv({ cls: 'hermedian-message-content' });
-    welcomeContent.createEl('p', {
-      text: 'Hello! I\'m Hermes Agent, your AI coding assistant. I can read, write, and edit files in your vault. How can I help?'
-    });
-  }
-
-  private buildEnvironment(): Record<string, string> {
-    const settings = this.plugin.settings || {};
-    const env: Record<string, string> = {};
-    if (settings.sharedEnvironmentVariables) {
-      for (const line of settings.sharedEnvironmentVariables.split('\n')) {
-        const [key, ...val] = line.split('=');
-        if (key && val.length) env[key.trim()] = val.join('=').trim();
+    const mostRecent = [...convos].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
+    this.currentConversationId = mostRecent.id;
+    const loaded = await this.repo.load(mostRecent.id);
+    if (loaded && this.messagesEl) {
+      this.messagesEl.empty();
+      for (const msg of loaded.conversation.messages) {
+        this.addMessage(msg.role as 'user' | 'assistant', msg.content.map((c: any) => c.text).join(''));
       }
     }
-    if (settings.hermes?.environmentVariables) {
-      for (const line of settings.hermes.environmentVariables.split('\n')) {
-        const [key, ...val] = line.split('=');
-        if (key && val.length) env[key.trim()] = val.join('=').trim();
-      }
-    }
-    return env;
   }
 
-  private stopCurrentRun(): void {
-    if (this.currentSession && typeof this.currentSession.stop === 'function') {
-      this.currentSession.stop();
+  private async newConversation(): Promise<void> {
+    this.currentConversationId = crypto.randomUUID();
+    if (this.messagesEl) {
+      this.messagesEl.empty();
+      const welcome = this.messagesEl.createDiv({ cls: 'hermedian-message assistant' });
+      welcome.createDiv({ cls: 'hermedian-message-content' })
+        .createEl('p', { text: 'New conversation started.' });
     }
-    this.isProcessing = false;
-    this.updateSendButtonState();
-    new Notice('Generation stopped');
   }
 
-  private async sendMessage(): Promise<void> {
+  private async showHistory(): Promise<void> {
+    const convos = await this.repo.list();
+    if (convos.length === 0) {
+      new Notice('No conversations yet');
+      return;
+    }
+    const items = convos.map(c => c.title || c.id.substring(0, 8));
+    new Notice(`History (${convos.length} conversations) — click a title to load.`);
+    // Simple menu via Modal
+    const { Modal } = await import('obsidian');
+    const modal = new Modal(this.app);
+    modal.titleEl.setText('Conversation History');
+    let last = '';
+    for (const c of convos) {
+      last = c.id;
+      const row = modal.contentEl.createDiv({ cls: 'hermedian-history-modal-item' });
+      row.textContent = c.title || c.id.substring(0, 8);
+      row.addEventListener('click', async () => {
+        modal.close();
+        this.currentConversationId = c.id;
+        const loaded = await this.repo.load(c.id);
+        if (loaded && this.messagesEl) {
+          this.messagesEl.empty();
+          for (const msg of loaded.conversation.messages) {
+            this.addMessage(msg.role as 'user' | 'assistant', msg.content.map((x: any) => x.text).join(''));
+          }
+        }
+      });
+    }
+    modal.open();
+  }
+
+  private addContext(): void {
+    new Notice('Context: vault is already the working directory. Files within it are accessible.');
+  }
+
+  private addMessage(role: 'user' | 'assistant', text: string): HTMLElement {
+    if (!this.messagesEl) return document.createElement('div');
+    const msg = this.messagesEl.createDiv({ cls: `hermedian-message ${role}` });
+    const content = msg.createDiv({ cls: 'hermedian-message-content' });
+    content.createEl('p', { text: text || '…' });
+    this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+    return content;
+  }
+
+  private updateMessage(el: HTMLElement, text: string): void {
+    el.empty();
+    el.createEl('p', { text: text || '…' });
+  }
+
+  async send(): Promise<void> {
     if (!this.inputEl || this.isProcessing) return;
-
     const text = this.inputEl.value.trim();
     if (!text) return;
 
-    if (!this.resolvedCliPath) {
-      try {
-        this.resolvedCliPath = await resolveCliPath(this.plugin.settings.hermes.cliPath);
-      } catch (err) {
-        this.addMessage('assistant', `Error: ${err instanceof Error ? err.message : 'Hermes CLI not found'}`);
-        return;
-      }
+    // Save user message to conversation
+    if (this.currentConversationId) {
+      await this.appendToConversation('user', text);
     }
-
-    this.isProcessing = true;
-    this.updateSendButtonState();
 
     this.addMessage('user', text);
     this.inputEl.value = '';
-    this.resetInputHeight();
+    this.inputEl.style.height = 'auto';
     this.inputEl.disabled = true;
+    this.setProcessing(true);
 
-    const assistantMsg = this.addMessage('assistant', '');
+    const assistantEl = this.addMessage('assistant', '');
 
-    try {
-      const selectorState = this.modelSelector?.getState() ?? {
-        selectedModel: this.plugin.settings.hermes.model || 'nvidia/llama-3.1-nemotron-70b-instruct',
-        thinkingEnabled: false,
-        effortLevel: this.plugin.settings.hermes.effortLevel || 'medium',
-      };
+    const settings = getHermesProviderSettings(this.plugin.settings || {});
+    const model = settings.model || 'nvidia/llama-3.1-nemotron-70b-instruct';
+    const provider = settings.provider || this.providerFromModel(model);
+    const reasoning = settings.effortLevel || 'medium';
 
-      let conversation: any;
-      if (this.currentConversationId) {
-        const loaded = await this.conversationRepo.load(this.currentConversationId);
-        if (!loaded) {
-          conversation = {
-            id: this.currentConversationId,
-            title: `Conversation ${this.currentConversationId.substring(0, 8)}`,
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-            providerId: 'hermes',
-            model: selectorState.selectedModel,
-            messageCount: 0,
-            providerState: {},
-            sessionId: null,
-            messages: []
-          };
-          await this.conversationRepo.create(conversation);
-        } else {
-          conversation = loaded.conversation;
+    const { spawn } = await import('child_process');
+    const args = ['chat', '-q', text, '-m', model, '--provider', provider, '--reasoning', reasoning, '--in', this.currentFolder];
+
+    console.log(`[Hermedian] ${this.cliPath} ${args.join(' ')}`);
+
+    let buffer = '';
+    this.process = spawn(this.cliPath, args, { cwd: this.currentFolder });
+
+    const { createInterface } = await import('readline');
+
+    if (this.process.stdout) {
+      const rl = createInterface({ input: this.process.stdout });
+      rl.on('line', (line: string) => {
+        buffer += line + '\n';
+        // Parse TUI box: extract text between ╭─ ⚕ Hermes and ╰─...╯
+        const m = buffer.match(/╭─ ⚕ Hermes[\s\S]*?╮\n([\s\S]*?)\n╰─/);
+        if (m) {
+          this.updateMessage(assistantEl, m[1].trim());
+          buffer = '';
         }
+      });
+    }
+
+    if (this.process.stderr) {
+      const rlErr = createInterface({ input: this.process.stderr });
+      rlErr.on('line', (line: string) => console.error('[hermes stderr]:', line));
+    }
+
+    this.process.on('close', async (code) => {
+      if (code === 0 && buffer.trim()) {
+        // Fallback: emit remaining buffer
+        const m = buffer.match(/╭─ ⚕ Hermes[\s\S]*?╮\n([\s\S]*?)\n╰─/);
+        const out = m ? m[1].trim() : buffer.trim();
+        if (out) this.updateMessage(assistantEl, out);
+      } else if (code !== 0 && code !== null) {
+        this.updateMessage(assistantEl, `Error: process exited (${code}). Check console for details.`);
+      }
+      // Save assistant message
+      const finalText = assistantEl.textContent || '';
+      if (finalText && this.currentConversationId) {
+        await this.appendToConversation('assistant', finalText);
+      }
+      this.setProcessing(false);
+      if (this.inputEl) {
+        this.inputEl.disabled = false;
+        this.inputEl.focus();
+      }
+    });
+
+    this.process.on('error', (err) => {
+      this.updateMessage(assistantEl, `Error: ${err.message}`);
+      this.setProcessing(false);
+      if (this.inputEl) {
+        this.inputEl.disabled = false;
+        this.inputEl.focus();
+      }
+    });
+  }
+
+  private async appendToConversation(role: 'user' | 'assistant', text: string): Promise<void> {
+    if (!this.currentConversationId) return;
+    try {
+      const existing = await this.repo.load(this.currentConversationId);
+      let conversation: any;
+      if (existing) {
+        conversation = existing.conversation;
       } else {
         conversation = {
-          id: crypto.randomUUID(),
-          title: 'New Conversation',
+          id: this.currentConversationId,
+          title: text.substring(0, 40),
           createdAt: Date.now(),
           updatedAt: Date.now(),
           providerId: 'hermes',
-          model: selectorState.selectedModel,
-          messageCount: 0,
+          model: getHermesProviderSettings(this.plugin.settings || {}).model,
+          messages: [],
           providerState: {},
           sessionId: null,
-          messages: []
+          messageCount: 0,
         };
-        await this.conversationRepo.create(conversation);
-        this.currentConversationId = conversation.id;
+        await this.repo.create(conversation);
       }
-
-      await this.conversationRepo.appendToLedger(this.currentConversationId!, {
-        messageId: crypto.randomUUID(),
-        userMessage: text,
+      conversation.messages.push({
+        id: crypto.randomUUID(),
+        role,
+        content: [{ type: 'text', text }],
         timestamp: Date.now(),
-        contextFiles: []
       });
-
-      const backend = this.providerRegistry.getExecutionBackend('hermes', this.plugin) as any;
-      if (backend.setCliPath && this.resolvedCliPath) {
-        backend.setCliPath(this.resolvedCliPath);
-      }
-
-      const vaultPath = (this.app.vault.adapter as any).getBasePath?.()
-        || (this.app.vault.adapter as any).basePath
-        || process.cwd();
-
-      const session = backend.createSession({
-        providerId: 'hermes',
-        conversationId: this.currentConversationId!,
-        workingDirectory: vaultPath,
-        environment: this.buildEnvironment(),
-        model: selectorState.selectedModel,
-        effortLevel: selectorState.effortLevel,
-      });
-
-      const run = await session.execute({
-        userMessage: text,
-        conversationHistory: [],
-        contextFiles: [],
-      });
-      this.currentSession = session;
-
-      let fullResponse = '';
-      for await (const event of run.stream) {
-        if (event.type === 'text_delta') {
-          fullResponse += event.content;
-          this.updateMessage(assistantMsg, fullResponse);
-        } else if (event.type === 'tool_start') {
-          this.updateMessage(assistantMsg, fullResponse + `\n\n🔧 ${event.toolName}...`);
-        } else if (event.type === 'tool_output') {
-          this.updateMessage(assistantMsg, fullResponse + `\n\n✅ ${event.toolName} done`);
-        } else if (event.type === 'completed') {
-          await this.conversationRepo.updateSessionMetadata(
-            this.currentConversationId!,
-            `hermes-session-${Date.now()}`,
-            {}
-          );
-          break;
-        } else if (event.type === 'error') {
-          this.updateMessage(assistantMsg, `Error: ${event.error}`);
-          break;
-        }
-      }
-
-      conversation.messages.push(
-        { id: crypto.randomUUID(), role: 'user', content: [{ type: 'text', text }], timestamp: Date.now() },
-        { id: crypto.randomUUID(), role: 'assistant', content: [{ type: 'text', text: fullResponse }], timestamp: Date.now() }
-      );
-      await this.conversationRepo.update(conversation);
-
-    } catch (error) {
-      this.updateMessage(assistantMsg, `Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      console.error('Error in sendMessage:', error);
-    } finally {
-      this.isProcessing = false;
-      this.currentSession = null;
-      this.updateSendButtonState();
-      this.inputEl!.disabled = false;
-      this.inputEl!.focus();
+      if (role === 'user') conversation.title = text.substring(0, 40);
+      conversation.updatedAt = Date.now();
+      await this.repo.update(conversation);
+    } catch (e) {
+      console.error('Failed to save conversation:', e);
     }
   }
 
-  private updateSendButtonState(): void {
+  private providerFromModel(model: string): string {
+    if (model.startsWith('nvidia/')) return 'nvidia-nim';
+    if (model.startsWith('hermes-') || model.startsWith('nemotron-')) return 'nous';
+    return 'nvidia-nim';
+  }
+
+  private setProcessing(processing: boolean): void {
+    this.isProcessing = processing;
     if (!this.sendBtn) return;
-    if (this.isProcessing) {
-      this.sendBtn.empty();
-      setIcon(this.sendBtn, 'square'); // stop icon
-      this.sendBtn.classList.add('hermedian-send-btn-processing');
-      this.sendBtn.title = 'Stop generation';
+    this.sendBtn.empty();
+    if (processing) {
+      setIcon(this.sendBtn, 'x');
+      this.sendBtn.classList.add('processing');
+      this.sendBtn.title = 'Stop';
     } else {
-      this.sendBtn.empty();
-      setIcon(this.sendBtn, 'arrow-up');
-      this.sendBtn.classList.remove('hermedian-send-btn-processing');
+      setIcon(this.sendBtn, 'chevron-up');
+      this.sendBtn.classList.remove('processing');
       this.sendBtn.title = 'Send';
     }
   }
 
-  private addMessage(role: 'user' | 'assistant', text: string): HTMLElement {
-    if (!this.messageContainer) return document.createElement('div');
-    const msg = this.messageContainer.createDiv({ cls: `hermedian-message ${role}` });
-    const content = msg.createDiv({ cls: 'hermedian-message-content' });
-    content.createEl('p', { text });
-    this.messageContainer.scrollTop = this.messageContainer.scrollHeight;
-    return content;
+  private stop(): void {
+    if (this.process && !this.process.killed) {
+      this.process.kill('SIGTERM');
+      this.process = null;
+    }
+    this.setProcessing(false);
+    if (this.inputEl) {
+      this.inputEl.disabled = false;
+      this.inputEl.focus();
+    }
+    new Notice('Stopped');
   }
 
-  private updateMessage(contentEl: HTMLElement, text: string): void {
-    contentEl.empty();
-    contentEl.createEl('p', { text });
-    if (this.messageContainer) {
-      this.messageContainer.scrollTop = this.messageContainer.scrollHeight;
-    }
-  }
-
-  private async createNewConversation(): Promise<void> {
-    if (this.messageContainer) {
-      this.messageContainer.empty();
-      const welcome = this.messageContainer.createDiv({ cls: 'hermedian-message assistant' });
-      const welcomeContent = welcome.createDiv({ cls: 'hermedian-message-content' });
-      welcomeContent.createEl('p', { text: 'New conversation started. How can I help?' });
-    }
-    const conversationId = await this.tabManager.createTab();
-    this.currentConversationId = conversationId;
-    new Notice('New conversation started');
-  }
-
-  private async loadConversation(conversationId: string): Promise<void> {
-    const loaded = await this.conversationRepo.load(conversationId);
-    if (!loaded) {
-      new Notice('Conversation not found');
-      return;
-    }
-    this.currentConversationId = conversationId;
-    this.loadConversationIntoView(loaded);
-    new Notice('Conversation loaded');
-  }
-
-  private loadConversationIntoView(loaded: any): void {
-    if (!this.messageContainer) return;
-    this.messageContainer.empty();
-    for (const entry of loaded.ledger) {
-      this.addMessage('user', entry.userMessage);
-    }
-    if (loaded.ledger.length === 0) {
-      const welcome = this.messageContainer.createDiv({ cls: 'hermedian-message assistant' });
-      const welcomeContent = welcome.createDiv({ cls: 'hermedian-message-content' });
-      welcomeContent.createEl('p', { text: 'Hello! I\'m Hermes Agent, your AI coding assistant. How can I help?' });
-    }
-  }
-
-  private async loadOrCreateConversation(): Promise<void> {
-    const conversations = await this.conversationRepo.list();
-    if (conversations.length > 0) {
-      const sorted = [...conversations].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-      await this.loadConversation(sorted[0].id);
-    } else {
-      await this.createNewConversation();
+  async onunload(): Promise<void> {
+    if (this.process && !this.process.killed) {
+      this.process.kill('SIGTERM');
     }
   }
 }

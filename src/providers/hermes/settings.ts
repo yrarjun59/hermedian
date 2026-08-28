@@ -12,6 +12,7 @@ export function getHermesProviderSettings(settings: Record<string, unknown>): He
     enabled: typeof config.enabled === 'boolean' ? config.enabled : DEFAULT_HERMEDIAN_SETTINGS.hermes.enabled,
     cliPath: typeof config.cliPath === 'string' ? config.cliPath : DEFAULT_HERMEDIAN_SETTINGS.hermes.cliPath,
     model: typeof config.model === 'string' ? config.model : DEFAULT_HERMEDIAN_SETTINGS.hermes.model,
+    provider: typeof config.provider === 'string' ? config.provider : 'nvidia-nim',
     effortLevel: typeof config.effortLevel === 'string' ? config.effortLevel as HermesProviderSettings['effortLevel'] : DEFAULT_HERMEDIAN_SETTINGS.hermes.effortLevel,
     safeMode: typeof config.safeMode === 'string' ? config.safeMode as HermesProviderSettings['safeMode'] : DEFAULT_HERMEDIAN_SETTINGS.hermes.safeMode,
     environmentVariables: typeof config.environmentVariables === 'string' ? config.environmentVariables : DEFAULT_HERMEDIAN_SETTINGS.hermes.environmentVariables,
